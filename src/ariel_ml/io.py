@@ -25,7 +25,7 @@ class RawObservation:
 class ArielDataRepository:
     def __init__(self, config: DatasetConfig | None = None) -> None:
         self.config = config or DatasetConfig()
-        self.root = self.config.data_root
+        self.root = Path(self.config.data_root)
 
     def list_planet_ids(self, split: str) -> list[str]:
         split_dir = self.root / split

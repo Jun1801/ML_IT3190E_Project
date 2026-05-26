@@ -56,3 +56,9 @@ def test_repository_reads_instrument_specific_adc_columns(tmp_path):
 
     assert repo.get_adc_params("AIRS-CH0") == (0.5, -900.0)
     assert repo.get_adc_params("FGS1") == (0.4, -1000.0)
+
+
+def test_repository_accepts_string_data_root(tmp_path):
+    repo = ArielDataRepository(DatasetConfig(data_root=str(tmp_path)))
+
+    assert repo.root == tmp_path
