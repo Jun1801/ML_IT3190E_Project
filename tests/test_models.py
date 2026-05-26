@@ -1,5 +1,8 @@
 import unittest
+import tempfile
+from pathlib import Path
 
+import joblib
 import numpy as np
 
 from ariel_ml.config import ModelConfig
@@ -106,6 +109,19 @@ class ModelTests(unittest.TestCase):
 
         self.assertEqual(prediction.mu.shape, y[28:].shape)
         self.assertTrue(np.all(prediction.sigma > 0))
+
+    def test_fitted_model_can_be_saved_with_joblib(self):
+        x, y = make_synthetic_regression(n_samples=24, n_targets=8)
+        model = RidgePCARegressor(ModelConfig(n_components=2, calibrate_sigma=False))
+        model.fit(x, y)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "model.joblib"
+            joblib.dump({"model": model}, path)
+            loaded = joblib.load(path)["model"]
+
+        prediction = loaded.predict(x[:3])
+        self.assertEqual(prediction.mu.shape, (3, y.shape[1]))
 
 
 if __name__ == "__main__":

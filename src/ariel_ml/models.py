@@ -35,6 +35,17 @@ class TargetPCARegressor:
         self.residual_rmse_: np.ndarray | None = None
         self.sigma_calibrator = SigmaCalibrator(sigma_floor=self.config.sigma_floor)
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Local lambdas used to build sklearn estimators are not pickleable.
+        # Fitted models are stored in self.models, so the factory is not needed
+        # for saved inference artifacts.
+        state["estimator_factory"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     def fit(
         self,
         x: np.ndarray,
