@@ -144,6 +144,7 @@ class ArielFeatureBuilder:
             f"{prefix}_oot_std_mean": float(np.nanmean(oot_std)),
             f"{prefix}_oot_std_max": float(np.nanmax(oot_std)),
             f"{prefix}_in_transit_std_mean": float(np.nanmean(in_std)),
+            f"{prefix}_residual_std_after_detrending": self._residual_std_after_detrending(arr, bounds),
             f"{prefix}_snr_depth_mean": float(np.nanmean(snr)),
             f"{prefix}_snr_depth_median": float(np.nanmedian(snr)),
         }
@@ -164,8 +165,13 @@ class ArielFeatureBuilder:
             features[f"star_{key}"] = numeric
             if key in {"Rs", "Ms", "Ts"} and numeric > 0:
                 features[f"star_log_{key}"] = float(np.log(numeric))
+            if key == "P":
+                features["star_period"] = numeric
 
-        for key in ("Rs", "Ts", "logg"):
+        if features.get("star_Ms", 0.0) > 0 and features.get("star_Rs", 0.0) > 0:
+            features["star_logg_proxy"] = float(np.log(features["star_Ms"] / (features["star_Rs"] ** 2)))
+
+        for key in ("Rs", "Ts", "logg", "logg_proxy"):
             feature_key = f"star_{key}"
             if feature_key in features:
                 features[f"interaction_depth_mean_x_{key}"] = depth_mean * features[feature_key]
@@ -208,6 +214,19 @@ class ArielFeatureBuilder:
         if y.size < 3:
             return 0.0
         return float(np.nanmean(np.diff(y, n=2)))
+
+    def _residual_std_after_detrending(self, arr: np.ndarray, bounds: TransitBounds) -> float:
+        values = np.asarray(arr, dtype=float)
+        if values.ndim == 2:
+            values = np.nanmean(values, axis=1)
+        values = values.reshape(-1)
+        mask = bounds.oot_mask & np.isfinite(values)
+        if np.count_nonzero(mask) < 3:
+            return 0.0
+        x = np.arange(values.shape[0], dtype=float)
+        coeffs = np.polyfit(x[mask], values[mask], deg=1)
+        trend = np.polyval(coeffs, x[mask])
+        return float(np.nanstd(values[mask] - trend))
 
     def _finite_features(self, features: dict[str, float]) -> dict[str, float]:
         clean: dict[str, float] = {}

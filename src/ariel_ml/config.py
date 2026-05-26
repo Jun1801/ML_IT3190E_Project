@@ -21,6 +21,8 @@ class PreprocessConfig:
     target_time_bins: int | None = 300
     bin_mode: str = "mean"
     hot_pixel_sigma: float = 8.0
+    bin_before_spatial_calibration: bool = True
+    apply_linearity: bool = False
     apply_cds: bool = True
     cds_mode: str = "pairwise"
     smooth_window: int = 5

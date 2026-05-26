@@ -47,10 +47,22 @@ class ArielDataRepository:
         return RawObservation(
             planet_id=str(planet_id),
             observation_id=observation_id,
-            airs_signal=self._read_parquet_array(planet_dir / f"AIRS-CH0_signal_{observation_id}.parquet"),
-            fgs_signal=self._read_parquet_array(planet_dir / f"FGS1_signal_{observation_id}.parquet"),
-            airs_calibration=self._load_calibration(planet_dir / f"AIRS-CH0_calibration_{observation_id}"),
-            fgs_calibration=self._load_calibration(planet_dir / f"FGS1_calibration_{observation_id}"),
+            airs_signal=self._read_signal_array(
+                planet_dir / f"AIRS-CH0_signal_{observation_id}.parquet",
+                "AIRS-CH0",
+            ),
+            fgs_signal=self._read_signal_array(
+                planet_dir / f"FGS1_signal_{observation_id}.parquet",
+                "FGS1",
+            ),
+            airs_calibration=self._load_calibration(
+                planet_dir / f"AIRS-CH0_calibration_{observation_id}",
+                "AIRS-CH0",
+            ),
+            fgs_calibration=self._load_calibration(
+                planet_dir / f"FGS1_calibration_{observation_id}",
+                "FGS1",
+            ),
             star_info=self.get_star_info(split, planet_id),
         )
 
@@ -67,8 +79,16 @@ class ArielDataRepository:
         if selected.empty:
             return 1.0, 0.0
         row = selected.iloc[0]
-        gain = float(row["gain"]) if "gain" in row else 1.0
-        offset = float(row["offset"]) if "offset" in row else 0.0
+        gain_column = f"{instrument}_adc_gain"
+        offset_column = f"{instrument}_adc_offset"
+        gain = float(row[gain_column]) if gain_column in row else float(row["gain"]) if "gain" in row else 1.0
+        offset = (
+            float(row[offset_column])
+            if offset_column in row
+            else float(row["offset"])
+            if "offset" in row
+            else 0.0
+        )
         return gain, offset
 
     def get_star_info(self, split: str, planet_id: str) -> dict[str, Any] | None:
@@ -83,6 +103,13 @@ class ArielDataRepository:
         info = pd.read_csv(path)
         row = info[info["planet_id"].astype(str) == str(planet_id)]
         if row.empty:
+            numeric_planet = pd.to_numeric(info["planet_id"], errors="coerce")
+            try:
+                planet_value = float(planet_id)
+            except ValueError:
+                planet_value = np.nan
+            row = info[numeric_planet == planet_value]
+        if row.empty:
             return None
         return row.iloc[0].to_dict()
 
@@ -92,12 +119,34 @@ class ArielDataRepository:
     def load_wavelengths(self) -> pd.DataFrame:
         return pd.read_csv(self.root / self.config.wavelengths_file)
 
-    def _load_calibration(self, directory: Path) -> CalibrationBundle:
+    def load_axis_info(self) -> pd.DataFrame | None:
+        path = self.root / "axis_info.parquet"
+        if not path.exists():
+            return None
+        return pd.read_parquet(path)
+
+    def axis_info_features(self) -> dict[str, float]:
+        axis = self.load_axis_info()
+        if axis is None:
+            return {}
+        features: dict[str, float] = {}
+        for column in axis.columns:
+            values = pd.to_numeric(axis[column], errors="coerce")
+            if values.notna().any():
+                key = column.replace("-", "_").replace(" ", "_")
+                features[f"axis_{key}_mean"] = float(values.mean())
+                features[f"axis_{key}_std"] = float(values.std(ddof=0))
+                features[f"axis_{key}_min"] = float(values.min())
+                features[f"axis_{key}_max"] = float(values.max())
+        return features
+
+    def _load_calibration(self, directory: Path, instrument: str) -> CalibrationBundle:
         return CalibrationBundle(
             dead=self._read_optional_parquet_array(directory / "dead.parquet"),
             dark=self._read_optional_parquet_array(directory / "dark.parquet"),
             flat=self._read_optional_parquet_array(directory / "flat.parquet"),
-            linear_corr=self._read_optional_parquet_array(directory / "linear_corr.parquet"),
+            linear_corr=self._read_optional_linear_corr(directory / "linear_corr.parquet", instrument),
+            read=self._read_optional_parquet_array(directory / "read.parquet"),
         )
 
     def _read_optional_parquet_array(self, path: Path) -> np.ndarray | None:
@@ -108,3 +157,26 @@ class ArielDataRepository:
     def _read_parquet_array(self, path: Path) -> np.ndarray:
         frame = pd.read_parquet(path)
         return frame.to_numpy()
+
+    def _read_signal_array(self, path: Path, instrument: str) -> np.ndarray:
+        arr = self._read_parquet_array(path)
+        shape = self._detector_shape(instrument)
+        if arr.ndim == 2 and arr.shape[1] == shape[0] * shape[1]:
+            return arr.reshape(arr.shape[0], shape[0], shape[1])
+        return arr
+
+    def _read_optional_linear_corr(self, path: Path, instrument: str) -> np.ndarray | None:
+        if not path.exists():
+            return None
+        arr = self._read_parquet_array(path)
+        shape = self._detector_shape(instrument)
+        if arr.ndim == 2 and arr.shape[1] == shape[1] and arr.shape[0] % shape[0] == 0:
+            return arr.reshape(arr.shape[0] // shape[0], shape[0], shape[1])
+        return arr
+
+    def _detector_shape(self, instrument: str) -> tuple[int, int]:
+        if instrument == "AIRS-CH0":
+            return 32, 356
+        if instrument == "FGS1":
+            return 32, 32
+        raise ValueError(f"Unknown instrument: {instrument}")

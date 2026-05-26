@@ -24,6 +24,9 @@ class ObservationRepository(Protocol):
     def get_adc_params(self, instrument: str, planet_id: str | None = None) -> tuple[float, float]:
         ...
 
+    def axis_info_features(self) -> dict[str, float]:
+        ...
+
 
 @dataclass(frozen=True)
 class FeatureBuildResult:
@@ -39,6 +42,7 @@ class ArielDatasetBuilder:
     ) -> None:
         self.repository = repository or ArielDataRepository()
         self.pipeline = pipeline or ArielPreprocessFeaturePipeline()
+        self._axis_features = self._load_axis_features()
 
     def build_split_features(
         self,
@@ -105,8 +109,15 @@ class ArielDatasetBuilder:
         return {
             "planet_id": str(planet_id),
             "observation_id": int(observation_id),
+            **self._axis_features,
             **features,
         }
+
+    def _load_axis_features(self) -> dict[str, float]:
+        axis_loader = getattr(self.repository, "axis_info_features", None)
+        if axis_loader is None:
+            return {}
+        return axis_loader()
 
 
 def align_features_and_targets(

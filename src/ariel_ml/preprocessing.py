@@ -13,6 +13,7 @@ class CalibrationBundle:
     dark: np.ndarray | None = None
     flat: np.ndarray | None = None
     linear_corr: np.ndarray | None = None
+    read: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class CalibrationMetrics:
     hot_pixel_count: int = 0
     flat_field_variance: float = 0.0
     dark_current_level: float = 0.0
+    read_noise_level: float = 0.0
     cds_noise_proxy: float = 0.0
 
     def as_features(self, prefix: str) -> dict[str, float]:
@@ -29,6 +31,7 @@ class CalibrationMetrics:
             f"{prefix}_hot_pixel_count": float(self.hot_pixel_count),
             f"{prefix}_flat_field_variance": float(self.flat_field_variance),
             f"{prefix}_dark_current_level": float(self.dark_current_level),
+            f"{prefix}_read_noise_level": float(self.read_noise_level),
             f"{prefix}_cds_noise_proxy": float(self.cds_noise_proxy),
         }
 
@@ -105,6 +108,11 @@ class DetectorCalibrator:
         calibrated = self._as_float_array(signal)
         calibrated = (calibrated - offset) * gain
 
+        if self.config.bin_before_spatial_calibration:
+            calibrated, cds_noise_proxy = self._apply_cds_and_binning(calibrated)
+        else:
+            cds_noise_proxy = 0.0
+
         calibrated, bad_pixel_count = self._mask_dead_pixels(calibrated, bundle.dead)
         calibrated, hot_pixel_count = self._mask_hot_pixels(calibrated)
 
@@ -114,8 +122,9 @@ class DetectorCalibrator:
             dark_current_level = float(np.nanmean(dark))
         else:
             dark_current_level = 0.0
+        read_noise_level = float(np.nanmean(bundle.read)) if bundle.read is not None else 0.0
 
-        if bundle.linear_corr is not None:
+        if self.config.apply_linearity and bundle.linear_corr is not None:
             calibrated = self._apply_linearity_correction(calibrated, bundle.linear_corr)
 
         if bundle.flat is not None:
@@ -127,18 +136,8 @@ class DetectorCalibrator:
 
         calibrated = self._fill_nan(calibrated)
 
-        if self.config.apply_cds:
-            calibrated = self._correlated_double_sample(calibrated)
-            cds_noise_proxy = float(np.nanstd(calibrated - np.nanmedian(calibrated, axis=0)))
-        else:
-            cds_noise_proxy = 0.0
-
-        if self.config.target_time_bins is not None:
-            calibrated = self.temporal_bin(
-                calibrated,
-                n_bins=self.config.target_time_bins,
-                mode=self.config.bin_mode,
-            )
+        if not self.config.bin_before_spatial_calibration:
+            calibrated, cds_noise_proxy = self._apply_cds_and_binning(calibrated)
 
         return CalibrationResult(
             signal=calibrated,
@@ -147,6 +146,7 @@ class DetectorCalibrator:
                 hot_pixel_count=hot_pixel_count,
                 flat_field_variance=flat_field_variance,
                 dark_current_level=dark_current_level,
+                read_noise_level=read_noise_level,
                 cds_noise_proxy=cds_noise_proxy,
             ),
         )
@@ -158,6 +158,21 @@ class DetectorCalibrator:
         chunks = np.array_split(signal, n_bins, axis=0)
         reducer = np.nanmedian if mode == "median" else np.nanmean
         return np.stack([reducer(chunk, axis=0) for chunk in chunks], axis=0)
+
+    def _apply_cds_and_binning(self, signal: np.ndarray) -> tuple[np.ndarray, float]:
+        processed = signal
+        if self.config.apply_cds:
+            processed = self._correlated_double_sample(processed)
+            cds_noise_proxy = float(np.nanstd(processed - np.nanmedian(processed, axis=0)))
+        else:
+            cds_noise_proxy = 0.0
+        if self.config.target_time_bins is not None:
+            processed = self.temporal_bin(
+                processed,
+                n_bins=self.config.target_time_bins,
+                mode=self.config.bin_mode,
+            )
+        return processed, cds_noise_proxy
 
     def _correlated_double_sample(self, signal: np.ndarray) -> np.ndarray:
         if signal.shape[0] < 2:
@@ -193,11 +208,22 @@ class DetectorCalibrator:
 
     def _apply_linearity_correction(self, signal: np.ndarray, linear_corr: np.ndarray) -> np.ndarray:
         coeffs = np.asarray(linear_corr, dtype=float)
+        if (
+            coeffs.ndim == signal.ndim
+            and coeffs.shape[1:] == signal.shape[1:]
+            and 1 <= coeffs.shape[0] <= 8
+        ):
+            corrected = signal.copy()
+            with np.errstate(over="ignore", invalid="ignore"):
+                for idx, coeff in enumerate(coeffs, start=2):
+                    corrected = corrected + self._broadcast_to_signal(coeff, signal) * np.power(signal, idx)
+            return np.nan_to_num(corrected, nan=0.0, posinf=0.0, neginf=0.0)
         if coeffs.ndim == signal.ndim + 1 and 1 <= coeffs.shape[0] <= 8:
             corrected = signal.copy()
-            for idx, coeff in enumerate(coeffs, start=2):
-                corrected = corrected + self._broadcast_to_signal(coeff, signal) * np.power(signal, idx)
-            return corrected
+            with np.errstate(over="ignore", invalid="ignore"):
+                for idx, coeff in enumerate(coeffs, start=2):
+                    corrected = corrected + self._broadcast_to_signal(coeff, signal) * np.power(signal, idx)
+            return np.nan_to_num(corrected, nan=0.0, posinf=0.0, neginf=0.0)
         return signal + self._broadcast_to_signal(coeffs, signal)
 
     def _broadcast_to_signal(self, value: np.ndarray, signal: np.ndarray) -> np.ndarray:
@@ -305,6 +331,10 @@ class TransitBoundaryDetector:
             return TransitBounds.centered(n_points, self.config.fallback_transit_fraction)
 
         smooth = self.transformer.smooth(curve)
+        derivative_bounds = self._detect_from_derivatives(smooth)
+        if derivative_bounds is not None:
+            return derivative_bounds
+
         median = float(np.nanmedian(smooth))
         min_value = float(np.nanmin(smooth))
         dip = median - min_value
@@ -324,6 +354,56 @@ class TransitBoundaryDetector:
             ingress_end=start,
             egress_start=end,
             end=min(n_points, end + margin),
+            n_points=n_points,
+        )
+
+    def _detect_from_derivatives(self, smooth: np.ndarray) -> TransitBounds | None:
+        n_points = smooth.shape[0]
+        if n_points < self.config.min_transit_points * 3:
+            return None
+        finite = np.isfinite(smooth)
+        if np.count_nonzero(finite) < self.config.min_transit_points * 3:
+            return None
+
+        d1 = np.diff(smooth)
+        d2 = np.diff(d1)
+        if d1.size < 4 or not np.isfinite(d1).any():
+            return None
+
+        center = int(np.nanargmin(smooth))
+        min_side = max(2, self.config.min_transit_points)
+        if center < min_side or center > n_points - min_side - 1:
+            return None
+
+        left = d1[:center]
+        right = d1[center:]
+        if left.size < min_side or right.size < min_side:
+            return None
+
+        ingress = int(np.nanargmin(left))
+        egress = center + int(np.nanargmax(right))
+        if egress <= ingress:
+            return None
+
+        gradient_scale = float(np.nanstd(d1))
+        if gradient_scale <= self.config.epsilon:
+            return None
+        if abs(float(d1[ingress])) < gradient_scale or abs(float(d1[egress])) < gradient_scale:
+            return None
+
+        width = max(egress - ingress, self.config.min_transit_points)
+        margin = max(1, width // 5)
+        start = max(0, ingress - margin)
+        end = min(n_points, egress + margin + 1)
+
+        if end - start < self.config.min_transit_points:
+            return None
+
+        return TransitBounds(
+            start=start,
+            ingress_end=max(start + 1, ingress + 1),
+            egress_start=max(ingress + 2, egress),
+            end=end,
             n_points=n_points,
         )
 
