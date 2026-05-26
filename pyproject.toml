@@ -1,0 +1,23 @@
+[project]
+name = "ariel-ml"
+version = "0.1.0"
+description = "Preprocessing and feature engineering utilities for Ariel Data Challenge 2025."
+requires-python = ">=3.11"
+dependencies = [
+    "joblib",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "scikit-learn",
+]
+
+[project.optional-dependencies]
+full = [
+    "lightgbm",
+    "torch",
+    "xgboost",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

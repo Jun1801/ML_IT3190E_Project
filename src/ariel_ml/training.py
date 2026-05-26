@@ -1,0 +1,279 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import replace
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import GroupKFold, KFold, train_test_split
+
+from ariel_ml.config import ModelConfig
+from ariel_ml.metrics import gaussian_nll, rmse_per_target
+from ariel_ml.models import ModelFactory, ModelPrediction, TargetPCARegressor
+
+
+@dataclass(frozen=True)
+class EvaluationResult:
+    rmse_mean: float
+    rmse_per_target: np.ndarray
+    mae_mean: float
+    gaussian_nll: float
+    sigma_mean: float
+    sigma_min: float
+    sigma_max: float
+    coverage_1sigma: float
+    coverage_2sigma: float
+
+    def as_dict(self, prefix: str = "") -> dict[str, float]:
+        return {
+            f"{prefix}rmse_mean": self.rmse_mean,
+            f"{prefix}mae_mean": self.mae_mean,
+            f"{prefix}gaussian_nll": self.gaussian_nll,
+            f"{prefix}sigma_mean": self.sigma_mean,
+            f"{prefix}sigma_min": self.sigma_min,
+            f"{prefix}sigma_max": self.sigma_max,
+            f"{prefix}coverage_1sigma": self.coverage_1sigma,
+            f"{prefix}coverage_2sigma": self.coverage_2sigma,
+        }
+
+
+@dataclass(frozen=True)
+class TrainResult:
+    model: TargetPCARegressor
+    prediction: ModelPrediction
+    evaluation: EvaluationResult
+    train_index: np.ndarray
+    validation_index: np.ndarray
+
+
+@dataclass(frozen=True)
+class CrossValidationResult:
+    fold_results: list[TrainResult]
+
+    @property
+    def mean_metrics(self) -> dict[str, float]:
+        if not self.fold_results:
+            return {}
+        rows = [fold.evaluation.as_dict() for fold in self.fold_results]
+        keys = rows[0].keys()
+        return {key: float(np.mean([row[key] for row in rows])) for key in keys}
+
+
+@dataclass(frozen=True)
+class SearchCandidateResult:
+    model_name: str
+    model_config: ModelConfig
+    mean_metrics: dict[str, float]
+
+
+@dataclass(frozen=True)
+class HyperparameterSearchResult:
+    candidates: list[SearchCandidateResult]
+    best_candidate: SearchCandidateResult
+
+
+def feature_dicts_to_frame(feature_rows: list[dict[str, float]]) -> pd.DataFrame:
+    frame = pd.DataFrame(feature_rows)
+    return frame.reindex(sorted(frame.columns), axis=1).fillna(0.0)
+
+
+def targets_to_matrix(targets: pd.DataFrame, *, id_column: str = "planet_id") -> tuple[np.ndarray, list[str]]:
+    target_columns = [col for col in targets.columns if col != id_column]
+    return targets[target_columns].to_numpy(dtype=float), target_columns
+
+
+def evaluate_prediction(y_true: np.ndarray, prediction: ModelPrediction) -> EvaluationResult:
+    y_true = np.asarray(y_true, dtype=float)
+    mu = np.asarray(prediction.mu, dtype=float)
+    sigma = np.maximum(np.asarray(prediction.sigma, dtype=float), 1e-12)
+    residual = y_true - mu
+    rmse = rmse_per_target(y_true, mu)
+    abs_error = np.abs(residual)
+    within_1sigma = abs_error <= sigma
+    within_2sigma = abs_error <= 2.0 * sigma
+    return EvaluationResult(
+        rmse_mean=float(np.mean(rmse)),
+        rmse_per_target=rmse,
+        mae_mean=float(np.mean(abs_error)),
+        gaussian_nll=gaussian_nll(y_true, mu, sigma),
+        sigma_mean=float(np.mean(sigma)),
+        sigma_min=float(np.min(sigma)),
+        sigma_max=float(np.max(sigma)),
+        coverage_1sigma=float(np.mean(within_1sigma)),
+        coverage_2sigma=float(np.mean(within_2sigma)),
+    )
+
+
+def train_model(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    model_name: str = "bayesian_ridge",
+    model_config: ModelConfig | None = None,
+    validation_fraction: float = 0.2,
+    groups: np.ndarray | None = None,
+    random_state: int = 42,
+) -> TrainResult:
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    train_idx, val_idx = make_train_validation_split(
+        n_samples=x_arr.shape[0],
+        validation_fraction=validation_fraction,
+        groups=groups,
+        random_state=random_state,
+    )
+    return train_model_on_indices(
+        x_arr,
+        y_arr,
+        train_idx,
+        val_idx,
+        model_name=model_name,
+        model_config=model_config,
+    )
+
+
+def refit_full_model(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    model_name: str = "bayesian_ridge",
+    model_config: ModelConfig | None = None,
+):
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    model = ModelFactory.create(model_name, model_config)
+    model.fit(x_arr, y_arr)
+    return model
+
+
+def train_model_on_indices(
+    x: np.ndarray,
+    y: np.ndarray,
+    train_idx: np.ndarray,
+    val_idx: np.ndarray,
+    *,
+    model_name: str = "bayesian_ridge",
+    model_config: ModelConfig | None = None,
+) -> TrainResult:
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    model = ModelFactory.create(model_name, model_config)
+    model.fit(
+        x_arr[train_idx],
+        y_arr[train_idx],
+        x_val=x_arr[val_idx],
+        y_val=y_arr[val_idx],
+    )
+    prediction = model.predict(x_arr[val_idx])
+    evaluation = evaluate_prediction(y_arr[val_idx], prediction)
+    return TrainResult(
+        model=model,
+        prediction=prediction,
+        evaluation=evaluation,
+        train_index=np.asarray(train_idx, dtype=int),
+        validation_index=np.asarray(val_idx, dtype=int),
+    )
+
+
+def hyperparameter_search(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    model_names: Iterable[str] = ("bayesian_ridge",),
+    n_components_grid: Iterable[int] = (20, 30, 40),
+    base_config: ModelConfig | None = None,
+    n_splits: int = 5,
+    groups: np.ndarray | None = None,
+    random_state: int = 42,
+    selection_metric: str = "gaussian_nll",
+) -> HyperparameterSearchResult:
+    base = base_config or ModelConfig(random_state=random_state)
+    candidates: list[SearchCandidateResult] = []
+    for model_name in model_names:
+        for n_components in n_components_grid:
+            config = replace(base, n_components=int(n_components), random_state=random_state)
+            cv_result = cross_validate_model(
+                x,
+                y,
+                model_name=model_name,
+                model_config=config,
+                n_splits=n_splits,
+                groups=groups,
+                random_state=random_state,
+            )
+            candidates.append(
+                SearchCandidateResult(
+                    model_name=model_name,
+                    model_config=config,
+                    mean_metrics=cv_result.mean_metrics,
+                )
+            )
+    if not candidates:
+        raise ValueError("hyperparameter_search requires at least one candidate.")
+    best = min(candidates, key=lambda item: item.mean_metrics[selection_metric])
+    return HyperparameterSearchResult(candidates=candidates, best_candidate=best)
+
+
+def cross_validate_model(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    model_name: str = "bayesian_ridge",
+    model_config: ModelConfig | None = None,
+    n_splits: int = 5,
+    groups: np.ndarray | None = None,
+    random_state: int = 42,
+) -> CrossValidationResult:
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    splitter = make_cv_splitter(n_splits=n_splits, groups=groups, random_state=random_state)
+    split_groups = None if groups is None else np.asarray(groups)
+    fold_results = [
+        train_model_on_indices(
+            x_arr,
+            y_arr,
+            train_idx,
+            val_idx,
+            model_name=model_name,
+            model_config=model_config,
+        )
+        for train_idx, val_idx in splitter.split(x_arr, y_arr, groups=split_groups)
+    ]
+    return CrossValidationResult(fold_results=fold_results)
+
+
+def make_train_validation_split(
+    *,
+    n_samples: int,
+    validation_fraction: float,
+    groups: np.ndarray | None = None,
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    indices = np.arange(n_samples)
+    if groups is None:
+        train_idx, val_idx = train_test_split(
+            indices,
+            test_size=validation_fraction,
+            random_state=random_state,
+            shuffle=True,
+        )
+        return np.asarray(train_idx, dtype=int), np.asarray(val_idx, dtype=int)
+
+    groups_arr = np.asarray(groups)
+    unique_groups = np.unique(groups_arr)
+    train_groups, val_groups = train_test_split(
+        unique_groups,
+        test_size=validation_fraction,
+        random_state=random_state,
+        shuffle=True,
+    )
+    train_mask = np.isin(groups_arr, train_groups)
+    val_mask = np.isin(groups_arr, val_groups)
+    return indices[train_mask], indices[val_mask]
+
+
+def make_cv_splitter(n_splits: int, groups: np.ndarray | None, random_state: int):
+    if groups is None:
+        return KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    return GroupKFold(n_splits=n_splits)
