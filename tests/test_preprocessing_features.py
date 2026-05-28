@@ -1,4 +1,5 @@
 import unittest
+import warnings
 
 import numpy as np
 
@@ -44,6 +45,19 @@ class PreprocessingTests(unittest.TestCase):
         self.assertLessEqual(bounds.ingress_end, 36)
         self.assertGreaterEqual(bounds.egress_start, 44)
         self.assertTrue(bounds.in_mask[40])
+
+    def test_hot_pixel_mask_ignores_all_nan_pixels_without_warning(self):
+        signal = np.ones((5, 2, 2), dtype=float)
+        signal[:, 0, 0] = np.nan
+        calibrator = DetectorCalibrator(PreprocessConfig(apply_cds=False))
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            masked, hot_count = calibrator._mask_hot_pixels(signal)
+
+        self.assertEqual(hot_count, 0)
+        self.assertTrue(np.isnan(masked[:, 0, 0]).all())
+        self.assertFalse(caught)
 
 
 class FeatureTests(unittest.TestCase):

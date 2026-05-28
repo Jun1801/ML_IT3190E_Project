@@ -198,10 +198,17 @@ class DetectorCalibrator:
     def _mask_hot_pixels(self, signal: np.ndarray) -> tuple[np.ndarray, int]:
         if signal.shape[0] < 3:
             return signal, 0
-        mean = np.nanmean(signal, axis=0, keepdims=True)
-        std = np.nanstd(signal, axis=0, keepdims=True)
+        valid = np.isfinite(signal)
+        count = np.sum(valid, axis=0, keepdims=True)
+        clean = np.where(valid, signal, 0.0)
+        total = np.sum(clean, axis=0, keepdims=True)
+        mean = np.divide(total, count, out=np.zeros_like(total, dtype=float), where=count > 0)
+        diff = np.where(valid, signal - mean, 0.0)
+        sumsq = np.sum(diff**2, axis=0, keepdims=True)
+        variance = np.divide(sumsq, count, out=np.zeros_like(sumsq, dtype=float), where=count > 1)
+        std = np.where(count > 1, np.sqrt(np.maximum(variance, 0.0)), np.inf)
         threshold = self.config.hot_pixel_sigma * np.where(std < self.config.epsilon, np.inf, std)
-        hot_mask = np.abs(signal - mean) > threshold
+        hot_mask = valid & (np.abs(signal - mean) > threshold)
         masked = signal.copy()
         masked[hot_mask] = np.nan
         return masked, int(np.count_nonzero(hot_mask))
