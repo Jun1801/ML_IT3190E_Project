@@ -108,7 +108,7 @@ class TargetPCARegressor:
         try:
             mu, std = model.predict(x_scaled, return_std=True)
             return np.asarray(mu, dtype=float), np.asarray(std, dtype=float)
-        except TypeError:
+        except (TypeError, ValueError):
             pass
 
         mu = np.asarray(model.predict(x_scaled), dtype=float)
