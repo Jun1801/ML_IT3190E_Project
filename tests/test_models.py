@@ -53,6 +53,15 @@ class MetricsTests(unittest.TestCase):
 
         self.assertLess(after, before)
 
+    def test_sigma_calibrator_shrinks_overwide_sigma(self):
+        y = np.array([[1.0, 2.0], [1.1, 1.9]])
+        mu = np.array([[1.01, 2.01], [1.09, 1.91]])
+        sigma = np.full_like(y, 0.1)
+
+        calibrated = SigmaCalibrator().fit_transform(y, mu, sigma)
+
+        self.assertLess(float(np.mean(calibrated)), 0.02)
+
 
 class ModelTests(unittest.TestCase):
     def test_bayesian_ridge_pca_fit_predict_shapes_and_positive_sigma(self):

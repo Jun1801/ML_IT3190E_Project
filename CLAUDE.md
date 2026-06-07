@@ -1,0 +1,346 @@
+﻿# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+**Ariel ML** is a machine learning pipeline for the Ariel Data Challenge 2025, a multi-target probabilistic regression task predicting atmospheric spectra (283 wavelength values) from noisy telescope detector data, including uncertainty estimates.
+
+Core approach: **Bayesian Ridge Regression + Physics-based Feature Engineering + Target PCA + Sigma Calibration**
+
+## Repository Structure
+
+```
+src/ariel_ml/              # Main reusable library (13 modules)
+  preprocessing.py         # Detector calibration, light curve extraction, transit detection
+  features.py              # Physics-based feature engineering
+  models.py                # ML models with PCA wrappers (Ridge, Bayesian Ridge, Kernel Ridge, ExtraTrees, Boosting, LightGBM, XGBoost)
+  deep_models.py           # Deep learning baselines (CNN1D, LSTM, GRU, TCN, Transformer, Autoencoder)
+  training.py              # Training pipeline with CV, hyperparameter search, evaluation
+  dataset_builder.py       # Data loading and feature building from raw observations
+  pipeline.py              # End-to-end orchestration
+  config.py                # Configuration dataclasses (PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
+  metrics.py               # Evaluation metrics (RMSE, Gaussian NLL, sigma calibration)
+  submission.py            # Submission generation
+  io.py                    # Kaggle parquet data repository
+  __init__.py              # Public API exports
+scripts/
+  build_features.py        # CLI: Extract features from raw data
+  train.py                 # CLI: Train model and hyperparameter search
+  download_sample_data.ps1 # PowerShell helper for data download
+tests/                     # pytest unit tests (uses synthetic data, no Kaggle data required)
+notebooks/                 # End-to-end Jupyter notebooks
+plans/                     # Research notes and model rationale (Vietnamese)
+  ariel_2025_model_plan.md # Detailed pipeline design with formulas and experiments
+```
+
+## Setup & Dependencies
+
+**Python Version:** 3.11+
+
+**Core Dependencies:**
+- joblib, numpy, pandas, pyarrow, scikit-learn
+
+**Optional (full model set):**
+- lightgbm, torch, xgboost
+
+**Installation:**
+
+```powershell
+# With uv (recommended)
+uv venv
+uv pip install -e .
+
+# Or standard pip
+python -m pip install -e .
+python -m pip install -r requirements-optional.txt  # For all models
+```
+
+## Common Commands
+
+### Run Tests
+```powershell
+python -m pytest                    # All tests
+python -m pytest tests/test_models.py::ModelTests::test_bayesian_ridge_pca_fit_predict_shapes_and_positive_sigma  # Single test
+python -m pytest -v                 # Verbose output
+```
+
+### Build Features (from raw Kaggle data)
+```powershell
+# Smoke test on 5 planets
+python scripts/build_features.py --data-root data --split train --output outputs/features_train.csv --limit 5
+
+# Full train feature extraction
+python scripts/build_features.py --data-root data --split train --output outputs/features_train.csv
+
+# Build test features
+python scripts/build_features.py --data-root data --split test --output outputs/features_test.csv
+
+# Custom time binning (default 300)
+python scripts/build_features.py --data-root data --split train --output outputs/features_train.csv --time-bins 500
+```
+
+### Train Models
+```powershell
+# Simple training with specified model
+python scripts/train.py --features outputs/features_train.csv --targets data/train.csv --output-dir outputs/model --model bayesian_ridge --n-components 30
+
+# Run 5-fold grouped cross-validation (respects planet groupings)
+python scripts/train.py --features outputs/features_train.csv --targets data/train.csv --cv 5
+
+# Hyperparameter search over models and PCA components, then refit on all data
+python scripts/train.py --features outputs/features_train.csv --targets data/train.csv --search --cv 5 `
+  --model-candidates "bayesian_ridge,ridge,kernel_ridge,extra_trees,boosting,lightgbm" `
+  --n-components-grid "20,30,40"
+
+# Available models: bayesian_ridge, ridge, kernel_ridge, extra_trees, boosting, lightgbm, xgboost, br_lgbm_residual
+```
+
+## Architecture & Data Flow
+
+### High-Level Pipeline
+
+**Data Input:**
+- Raw AIRS detector signals (time × spatial × wavelength)
+- FGS1 white-light signals (time × spatial)
+- Calibration bundles (dead pixels, dark frames, flat fields)
+- ADC info (gain/offset per instrument)
+- Star metadata (radius, mass, temperature, logg)
+- Train targets (planet_id → spectrum of 283 values)
+
+**Stage 1: Detector Calibration** (`DetectorCalibrator`)
+1. ADC correction: `(raw - offset) × gain`
+2. Bad pixel masking (dead pixel replacement via median)
+3. Dark current subtraction
+4. Flat-field correction
+5. Correlated double sampling (CDS) to reduce read noise
+6. Temporal binning (default 300 bins)
+
+**Stage 2: Light Curve Extraction** (`LightCurveExtractor`)
+- AIRS: Sum spatial dimensions → `[time, wavelength]` light curves
+- FGS: Sum all spatial dimensions → `[time]` white-light curve
+- Output: `LightCurves` dataclass with airs, fgs, airs_white
+
+**Stage 3: Transit Boundary Detection** (`TransitBoundaryDetector`)
+- Uses FGS white-light curve (higher SNR)
+- Detects ingress, in-transit, egress regions via derivative analysis
+- Outputs `TransitBounds` (start, ingress_end, egress_start, end indices)
+
+**Stage 4: Normalization & Detrending** (`LightCurveTransformer`)
+- Normalize by out-of-transit median
+- Polynomial detrending (default degree 2)
+- Light smoothing (default window 5)
+
+**Stage 5: Feature Engineering** (`ArielFeatureBuilder`)
+Physics-based features extracted per observation:
+- **Depth features:** Transit depth per wavelength, mean/median/percentile variants
+- **Multi-scale spectral:** Binned wavelengths (sizes 1, 2, 4, 8, 16, 32, 64) with local statistics
+- **Shape features:** Ingress/egress slopes, duration, symmetry, baseline drift (from FGS + white curve)
+- **Noise features:** Out-of-transit & in-transit std, SNR, calibration metrics
+- **Stellar features:** Star radius, mass, temperature, logg (with log and interaction terms)
+
+Output: `dict[str, float]` of ~50–150 features per observation
+
+**Stage 6: Model Training** (`TargetPCARegressor` wrappers)
+1. Feature standardization (StandardScaler)
+2. Target PCA (default 30 components, preserves spectrum smoothness)
+3. Train regressor per PCA component (e.g., Bayesian Ridge)
+4. Predict PCA coefficients with uncertainty
+5. Inverse PCA transform to 283-wavelength spectrum
+6. Combine Bayesian Ridge uncertainty + validation residual RMSE
+7. Calibrate sigma scale on validation Gaussian NLL
+
+**Stage 7: Submission**
+- Outputs predictions + calibrated uncertainties
+- Format: CSV with planet_id, wavelength_001 to wavelength_283, and sigma_001 to sigma_283
+
+### Key Classes & Design Patterns
+
+**Configuration Objects** (`config.py`):
+- `PreprocessConfig`: Detector calibration & light curve normalization parameters
+- `FeatureConfig`: Feature extraction options
+- `ModelConfig`: PCA components, standardization, sigma floor, random state
+- `DeepModelConfig`: Epochs, batch size, learning rate, device
+
+**Core Abstractions:**
+- `ArielPreprocessFeaturePipeline`: Orchestrates calibration → light curves → features
+- `ArielDatasetBuilder`: Loads raw observations, builds feature DataFrames
+- `TargetPCARegressor`: Base class for all tabular models (Ridge, Bayesian Ridge, Kernel Ridge, ExtraTrees, Boosting)
+- `ModelFactory`: Factory for creating model instances by name
+
+**Data Structures:**
+- `CalibrationBundle`: dead, dark, flat, read, linear_corr arrays
+- `CalibrationMetrics`: Extracted QA metrics for features
+- `LightCurves`: AIRS (time × wavelength) + FGS (time) + white (time)
+- `TransitBounds`: Transit region indices and convenience masks/slices
+- `ModelPrediction`: (mu: mean spectrum, sigma: uncertainty)
+- `EvaluationResult`: RMSE, MAE, Gaussian NLL, coverage metrics
+- `TrainResult`: Model + prediction + evaluation + train/val indices
+
+**Training Utilities** (`training.py`):
+- `train_model`: Single train/val split with optional search
+- `cross_validate_model`: K-fold CV with GroupKFold (respects planet groups)
+- `hyperparameter_search`: Grid search over models & n_components
+- `refit_full_model`: Refit best candidate on all data
+- `CrossValidationResult`: Holds `fold_results: list[TrainResult]`; `.mean_metrics` averages over folds
+- `SearchCandidateResult` / `HyperparameterSearchResult`: Structured output from grid search with `best_candidate`
+
+## Model Comparison Strategy
+
+**Primary Model:** Bayesian Ridge + Target PCA
+- Rationale: Probabilistic, fits small datasets, provides natural uncertainty, interpretable
+
+**Comparative ML Models:**
+1. **Ridge:** Linear baseline, no uncertainty
+2. **Kernel Ridge:** Nonlinear via RBF/polynomial kernels
+3. **ExtraTrees:** Tree-based, robust to outliers, feature importance
+4. **LightGBM/XGBoost:** Gradient boosting, strong on tabular features
+5. **ResidualCorrectedRegressor:** Bayesian Ridge + LightGBM residual correction (weighted blend)
+
+**Deep Learning Baselines** (`deep_models.py`):
+- **CNN1D:** 1D convolutions on light curve time dimension
+- **LSTM/GRU:** Sequence models
+- **TCN:** Temporal convolutional network with dilated convolutions
+- **Transformer:** Self-attention on time steps
+- **Autoencoder + MLP:** Learn latent representation then regress
+
+## Key Implementation Details
+
+### Handling Uncertain Data
+- Validation sets used to estimate residual RMSE per wavelength
+- Sigma = sqrt(Bayesian_var + residual_RMSE²)
+- `SigmaCalibrator` optimizes scale factor on Gaussian NLL
+
+### Cross-Validation
+- Uses `GroupKFold` to prevent leakage (same planet in train/val)
+- Groups are inferred from planet_id in target CSV
+
+### Feature Alignment
+- `align_features_and_targets()` matches feature rows to targets by planet_id
+- Handles missing planets or observations gracefully
+- Returns X, y, groups, target_column_names
+
+### Joblib Serialization
+- Models saved with `joblib.dump(artifact_dict, path)` → restores with `joblib.load(path)`
+- Fitted sklearn components (scaler, pca, regressors) fully serialized
+- Lambdas in factories not pickled; only fitted models stored
+
+## Testing Strategy
+
+Tests use **synthetic data only** — no Kaggle dataset required.
+
+- `test_preprocessing_features.py`: Detector calibration, light curve extraction, detrending
+- `test_models.py`: Model fitting, prediction shapes, sigma positivity, joblib serialization
+- `test_training.py`: CV, hyperparameter search, train/val split
+- `test_dataset_builder_submission.py`: Feature alignment, submission format
+- `test_deep_models.py`: Deep learning model instantiation
+- `test_real_data_layout.py`: Expected Kaggle parquet directory structure
+
+Run single test: `pytest tests/test_models.py::ModelTests::test_bayesian_ridge_pca_fit_predict_shapes_and_positive_sigma`
+
+## Expected Data Layout
+
+When raw Kaggle data is available, structure should be:
+```
+data/
+  train.csv                    # planet_id, wavelength_001 to wavelength_283
+  train_star_info.csv          # planet_id, Rs, Ms, Ts, logg, period, etc.
+  test_star_info.csv
+  adc_info.csv                 # instrument, planet_id, gain, offset
+  wavelengths.csv              # wavelength values for each channel
+  sample_submission.csv
+  train/
+    <planet_id>/
+      AIRS-CH0_signal_0.parquet       # shape [time, height, width, channels]
+      AIRS-CH0_calibration_0/         # directory with dead.parquet, dark.parquet, flat.parquet, etc.
+      FGS1_signal_0.parquet
+      FGS1_calibration_0/
+  test/
+    <planet_id>/
+      (same structure)
+```
+
+`data/` is intentionally git-ignored.
+
+## Configuration & Customization
+
+All preprocessing, feature, and model hyperparameters are configurable via dataclasses in `config.py`:
+
+```python
+from ariel_ml.config import PreprocessConfig, FeatureConfig, ModelConfig
+from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
+
+# Custom preprocessing
+preprocess = PreprocessConfig(
+    target_time_bins=500,        # More fine-grained time sampling
+    detrend_degree=3,            # Stronger detrending
+    smooth_window=7,
+)
+
+# Custom features
+features = FeatureConfig(
+    spectral_bin_sizes=(1, 2, 4, 8, 16, 32),  # Skip size 64
+    include_per_wavelength_noise=True,
+)
+
+# Custom model
+model_cfg = ModelConfig(
+    n_components=40,
+    calibrate_sigma=True,
+)
+
+pipeline = ArielPreprocessFeaturePipeline(preprocess, features)
+```
+
+## Research Documentation
+
+**Main reference:** `plans/ariel_2025_model_plan.md` (1279 lines, Vietnamese)
+- Detailed rationale for each pipeline stage
+- Mathematical formulas for calibration, detrending, feature extraction
+- Comparative model descriptions with pros/cons
+- Proposed experiment plan (Exp 0–6)
+- Pseudocode for feature extraction and Bayesian Ridge training
+
+**Key insights:**
+- Top Kaggle solutions rely on physics-based signal processing, not just ML
+- Transit depth is the single most informative feature
+- Multi-scale spectral features exploit wavelength continuity
+- Bayesian Ridge + uncertainty calibration aligns well with metric (Gaussian NLL)
+
+## Repository Guidelines
+
+From `AGENTS.md`:
+- Keep preprocessing, feature, and model logic in `src/ariel_ml/`
+- Use `tests/` for deterministic unit tests (synthetic data preferred)
+- Use `notebooks/` only for exploratory analysis; import production code from `src/`
+- Keep large artifacts (models, submissions, raw data) in `outputs/` and `data/` (both git-ignored)
+- Do not commit `.env`, model checkpoints, or challenge data
+- Follow PEP 8, use `snake_case` for functions/variables, `PascalCase` for classes
+- Add focused `pytest` coverage for non-trivial logic changes
+
+### Coding Approach (`.agents/rules/coding_rule.md`)
+- **TDD for non-trivial changes:** Write a failing test first (RED), make the smallest change to pass (GREEN), then refactor.
+- **Surgical edits:** Touch only what the task requires. Don't improve adjacent unrelated code.
+- **Simplicity:** No features, abstractions, or error handling beyond what was asked. If 200 lines could be 50, rewrite.
+
+### Shadow File Technique (`.agents/rules/shadow_file.md`)
+For large or multi-location file edits, use the shadow file technique to avoid indentation errors and context loss:
+1. Create `filename.ext.shadow` as a new file (do not copy the original).
+2. Write the entire final state of the file to it in chunks if needed.
+3. Verify the shadow file is complete and syntactically correct.
+4. Delete the original and rename the shadow file to the original name.
+
+### Package Management
+Always use `uv` — never bare `pip install`:
+```powershell
+uv pip install <package>
+uv pip install -e .
+```
+
+## Notable Limitations
+
+1. Raw Kaggle parquet shapes have not been validated in this workspace (data/ not present)
+2. LightGBM/XGBoost adapters require optional dependencies
+3. Transit detector is a baseline heuristic; real light curves should be visually inspected
+4. Deep learning models likely overfit on small planet count; use as comparison only
+5. Sigma calibration assumes validation set is representative of test set distribution

@@ -21,8 +21,8 @@ class SigmaCalibrator:
     def __init__(
         self,
         *,
-        lower: float = 0.05,
-        upper: float = 20.0,
+        lower: float = 1e-4,
+        upper: float = 100.0,
         n_grid: int = 200,
         sigma_floor: float = 1e-8,
     ) -> None:
@@ -34,9 +34,14 @@ class SigmaCalibrator:
 
     def fit(self, y_true: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> "SigmaCalibrator":
         sigma = np.maximum(np.asarray(sigma, dtype=float), self.sigma_floor)
-        scales = np.geomspace(self.lower, self.upper, self.n_grid)
-        losses = [gaussian_nll(y_true, mu, sigma * scale) for scale in scales]
-        self.scale_ = float(scales[int(np.argmin(losses))])
+        residual = np.asarray(y_true, dtype=float) - np.asarray(mu, dtype=float)
+        normalized_mse = np.mean((residual / sigma) ** 2)
+        if np.isfinite(normalized_mse) and normalized_mse > 0.0:
+            self.scale_ = float(np.clip(np.sqrt(normalized_mse), self.lower, self.upper))
+        else:
+            scales = np.geomspace(self.lower, self.upper, self.n_grid)
+            losses = [gaussian_nll(y_true, mu, sigma * scale) for scale in scales]
+            self.scale_ = float(scales[int(np.argmin(losses))])
         return self
 
     def transform(self, sigma: np.ndarray) -> np.ndarray:

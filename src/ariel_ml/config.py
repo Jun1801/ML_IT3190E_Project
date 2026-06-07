@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class ModelConfig:
     sigma_floor: float = 1e-8
     calibrate_sigma: bool = True
     random_state: int = 42
+    model_params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

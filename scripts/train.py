@@ -31,8 +31,28 @@ def parse_args() -> argparse.Namespace:
         default="20,30,40",
         help="Comma-separated PCA component counts for --search.",
     )
+    parser.add_argument(
+        "--model-params-grid",
+        default=None,
+        help=(
+            "JSON array of model-param dicts for --search. "
+            "Each dict is forwarded to the model constructor. "
+            'Example (Ridge alpha sweep): \'[{"alpha": 0.01}, {"alpha": 0.1}, {"alpha": 1.0}]\'. '
+            'Example (LightGBM): \'[{"num_leaves": 15}, {"num_leaves": 31}, {"num_leaves": 63}]\'.'
+        ),
+    )
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--cv", type=int, default=0, help="Run K-fold CV instead of one validation split when >1.")
+    parser.add_argument(
+        "--sigma-cal-fraction",
+        type=float,
+        default=0.0,
+        help=(
+            "Fraction of the training fold reserved for sigma calibration during --cv or --search. "
+            "When >0, the eval fold is never used for sigma fitting (removes circular NLL). "
+            "Recommended: 0.2. Default 0 preserves legacy behaviour."
+        ),
+    )
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--no-sigma-calibration", action="store_true")
     parser.add_argument("--no-refit-full", action="store_true")
@@ -58,16 +78,23 @@ def main() -> None:
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    model_params_grid = None
+    if args.model_params_grid:
+        import json as _json
+        model_params_grid = _json.loads(args.model_params_grid)
+
     if args.search:
         search = hyperparameter_search(
             x_frame.to_numpy(dtype=float),
             y,
             model_names=[name.strip() for name in args.model_candidates.split(",") if name.strip()],
             n_components_grid=[int(value) for value in args.n_components_grid.split(",") if value.strip()],
+            model_params_grid=model_params_grid,
             base_config=model_config,
             n_splits=args.cv if args.cv and args.cv > 1 else 5,
             groups=groups,
             random_state=args.random_state,
+            sigma_cal_fraction=args.sigma_cal_fraction,
         )
         search_rows = [
             {
@@ -95,6 +122,7 @@ def main() -> None:
             n_splits=args.cv,
             groups=groups,
             random_state=args.random_state,
+            sigma_cal_fraction=args.sigma_cal_fraction,
         )
         metrics = cv_result.mean_metrics
         (args.output_dir / "cv_metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")

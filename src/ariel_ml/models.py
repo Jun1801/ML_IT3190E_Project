@@ -63,17 +63,17 @@ class TargetPCARegressor:
         z = self.pca.fit_transform(y_arr)
         self.models = [self.estimator_factory().fit(x_scaled, z[:, idx]) for idx in range(z.shape[1])]
 
-        residual_x = x_arr if x_val is None else np.asarray(x_val, dtype=float)
-        residual_y = y_arr if y_val is None else np.asarray(y_val, dtype=float)
-        residual_pred = self._predict_uncalibrated(residual_x)
-        self.residual_rmse_ = rmse_per_target(
-            residual_y,
-            residual_pred.mu,
-            floor=self.config.residual_floor,
-        )
-
-        if self.config.calibrate_sigma:
-            self.sigma_calibrator.fit(residual_y, residual_pred.mu, residual_pred.sigma)
+        if x_val is not None and y_val is not None:
+            residual_x = np.asarray(x_val, dtype=float)
+            residual_y = np.asarray(y_val, dtype=float)
+            residual_pred = self._predict_uncalibrated(residual_x)
+            self.residual_rmse_ = rmse_per_target(
+                residual_y,
+                residual_pred.mu,
+                floor=self.config.residual_floor,
+            )
+            if self.config.calibrate_sigma:
+                self.sigma_calibrator.fit(residual_y, residual_pred.mu, residual_pred.sigma)
         return self
 
     def predict(self, x: np.ndarray) -> ModelPrediction:
@@ -403,36 +403,40 @@ class WeightedEnsembleRegressor:
 
 class ModelFactory:
     @staticmethod
-    def create(name: str, config: ModelConfig | None = None) -> TargetPCARegressor:
+    def create(name: str, config: ModelConfig | None = None) -> "TargetPCARegressor | ResidualCorrectedRegressor":
+        cfg = config or ModelConfig()
+        params = cfg.model_params  # forwarded to the underlying estimator constructor
         normalized = name.strip().lower().replace("-", "_")
         if normalized in {"bayesian_ridge", "br"}:
-            return BayesianRidgePCARegressor(config)
+            return BayesianRidgePCARegressor(cfg, **params)
         if normalized == "ridge":
-            return RidgePCARegressor(config)
+            return RidgePCARegressor(cfg, **params)
         if normalized in {"kernel_ridge", "krr"}:
-            return KernelRidgePCARegressor(config)
+            return KernelRidgePCARegressor(cfg, **params)
         if normalized in {"extra_trees", "extratrees", "random_forest_like"}:
-            return ExtraTreesPCARegressor(config)
+            return ExtraTreesPCARegressor(cfg, **params)
         if normalized in {"boosting", "gradient_boosting", "lightgbm_like"}:
-            return BoostingPCARegressor(config)
+            return BoostingPCARegressor(cfg, **params)
         if normalized in {"lightgbm", "lgbm"}:
-            return LightGBMPCARegressor(config)
+            return LightGBMPCARegressor(cfg, **params)
         if normalized in {"xgboost", "xgb"}:
-            return XGBoostPCARegressor(config)
+            return XGBoostPCARegressor(cfg, **params)
         if normalized in {"bayesian_ridge_lgbm_residual", "br_lgbm_residual"}:
-            cfg = config or ModelConfig()
+            residual_params = dict(params)
+            eta = residual_params.pop("eta", 0.3)
             return ResidualCorrectedRegressor(
                 BayesianRidgePCARegressor(cfg),
-                LightGBMPCARegressor(cfg),
-                eta=0.3,
+                LightGBMPCARegressor(cfg, **residual_params),
+                eta=eta,
                 sigma_floor=cfg.sigma_floor,
             )
         if normalized in {"bayesian_ridge_boosting_residual", "br_boosting_residual"}:
-            cfg = config or ModelConfig()
+            residual_params = dict(params)
+            eta = residual_params.pop("eta", 0.3)
             return ResidualCorrectedRegressor(
                 BayesianRidgePCARegressor(cfg),
-                BoostingPCARegressor(cfg),
-                eta=0.3,
+                BoostingPCARegressor(cfg, **residual_params),
+                eta=eta,
                 sigma_floor=cfg.sigma_floor,
             )
         raise ValueError(f"Unknown model name: {name}")

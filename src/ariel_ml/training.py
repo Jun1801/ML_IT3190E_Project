@@ -10,7 +10,7 @@ from sklearn.model_selection import GroupKFold, KFold, train_test_split
 
 from ariel_ml.config import ModelConfig
 from ariel_ml.metrics import gaussian_nll, rmse_per_target
-from ariel_ml.models import ModelFactory, ModelPrediction, TargetPCARegressor
+from ariel_ml.models import ModelFactory, ModelPrediction, ResidualCorrectedRegressor, TargetPCARegressor
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class EvaluationResult:
     sigma_mean: float
     sigma_min: float
     sigma_max: float
+    sigma_to_abs_error_ratio: float
     coverage_1sigma: float
     coverage_2sigma: float
 
@@ -33,6 +34,7 @@ class EvaluationResult:
             f"{prefix}sigma_mean": self.sigma_mean,
             f"{prefix}sigma_min": self.sigma_min,
             f"{prefix}sigma_max": self.sigma_max,
+            f"{prefix}sigma_to_abs_error_ratio": self.sigma_to_abs_error_ratio,
             f"{prefix}coverage_1sigma": self.coverage_1sigma,
             f"{prefix}coverage_2sigma": self.coverage_2sigma,
         }
@@ -40,7 +42,7 @@ class EvaluationResult:
 
 @dataclass(frozen=True)
 class TrainResult:
-    model: TargetPCARegressor
+    model: TargetPCARegressor | ResidualCorrectedRegressor
     prediction: ModelPrediction
     evaluation: EvaluationResult
     train_index: np.ndarray
@@ -100,6 +102,7 @@ def evaluate_prediction(y_true: np.ndarray, prediction: ModelPrediction) -> Eval
         sigma_mean=float(np.mean(sigma)),
         sigma_min=float(np.min(sigma)),
         sigma_max=float(np.max(sigma)),
+        sigma_to_abs_error_ratio=float(np.mean(sigma) / max(float(np.mean(abs_error)), 1e-12)),
         coverage_1sigma=float(np.mean(within_1sigma)),
         coverage_2sigma=float(np.mean(within_2sigma)),
     )
@@ -114,6 +117,7 @@ def train_model(
     validation_fraction: float = 0.2,
     groups: np.ndarray | None = None,
     random_state: int = 42,
+    sigma_cal_fraction: float = 0.0,
 ) -> TrainResult:
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)
@@ -130,6 +134,8 @@ def train_model(
         val_idx,
         model_name=model_name,
         model_config=model_config,
+        sigma_cal_fraction=sigma_cal_fraction,
+        random_state=random_state,
     )
 
 
@@ -155,16 +161,31 @@ def train_model_on_indices(
     *,
     model_name: str = "bayesian_ridge",
     model_config: ModelConfig | None = None,
+    sigma_cal_fraction: float = 0.0,
+    random_state: int = 42,
 ) -> TrainResult:
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)
     model = ModelFactory.create(model_name, model_config)
-    model.fit(
-        x_arr[train_idx],
-        y_arr[train_idx],
-        x_val=x_arr[val_idx],
-        y_val=y_arr[val_idx],
-    )
+
+    if sigma_cal_fraction > 0.0 and len(train_idx) > 4:
+        # Use a held-out subset of the training fold for sigma calibration so that
+        # the evaluation fold is never seen during sigma fitting (avoids circular NLL).
+        n_cal = max(1, int(len(train_idx) * sigma_cal_fraction))
+        rng = np.random.default_rng(random_state)
+        shuffled = rng.permutation(len(train_idx))
+        cal_idx = train_idx[shuffled[:n_cal]]
+        model_train_idx = train_idx[shuffled[n_cal:]]
+        model.fit(
+            x_arr[model_train_idx], y_arr[model_train_idx],
+            x_val=x_arr[cal_idx], y_val=y_arr[cal_idx],
+        )
+    else:
+        model.fit(
+            x_arr[train_idx], y_arr[train_idx],
+            x_val=x_arr[val_idx], y_val=y_arr[val_idx],
+        )
+
     prediction = model.predict(x_arr[val_idx])
     evaluation = evaluate_prediction(y_arr[val_idx], prediction)
     return TrainResult(
@@ -182,33 +203,43 @@ def hyperparameter_search(
     *,
     model_names: Iterable[str] = ("bayesian_ridge",),
     n_components_grid: Iterable[int] = (20, 30, 40),
+    model_params_grid: list[dict] | None = None,
     base_config: ModelConfig | None = None,
     n_splits: int = 5,
     groups: np.ndarray | None = None,
     random_state: int = 42,
     selection_metric: str = "gaussian_nll",
+    sigma_cal_fraction: float = 0.0,
 ) -> HyperparameterSearchResult:
     base = base_config or ModelConfig(random_state=random_state)
+    params_list: list[dict] = model_params_grid if model_params_grid else [{}]
     candidates: list[SearchCandidateResult] = []
     for model_name in model_names:
         for n_components in n_components_grid:
-            config = replace(base, n_components=int(n_components), random_state=random_state)
-            cv_result = cross_validate_model(
-                x,
-                y,
-                model_name=model_name,
-                model_config=config,
-                n_splits=n_splits,
-                groups=groups,
-                random_state=random_state,
-            )
-            candidates.append(
-                SearchCandidateResult(
+            for params in params_list:
+                config = replace(
+                    base,
+                    n_components=int(n_components),
+                    random_state=random_state,
+                    model_params=params,
+                )
+                cv_result = cross_validate_model(
+                    x,
+                    y,
                     model_name=model_name,
                     model_config=config,
-                    mean_metrics=cv_result.mean_metrics,
+                    n_splits=n_splits,
+                    groups=groups,
+                    random_state=random_state,
+                    sigma_cal_fraction=sigma_cal_fraction,
                 )
-            )
+                candidates.append(
+                    SearchCandidateResult(
+                        model_name=model_name,
+                        model_config=config,
+                        mean_metrics=cv_result.mean_metrics,
+                    )
+                )
     if not candidates:
         raise ValueError("hyperparameter_search requires at least one candidate.")
     best = min(candidates, key=lambda item: item.mean_metrics[selection_metric])
@@ -224,6 +255,7 @@ def cross_validate_model(
     n_splits: int = 5,
     groups: np.ndarray | None = None,
     random_state: int = 42,
+    sigma_cal_fraction: float = 0.0,
 ) -> CrossValidationResult:
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)
@@ -237,6 +269,8 @@ def cross_validate_model(
             val_idx,
             model_name=model_name,
             model_config=model_config,
+            sigma_cal_fraction=sigma_cal_fraction,
+            random_state=random_state,
         )
         for train_idx, val_idx in splitter.split(x_arr, y_arr, groups=split_groups)
     ]

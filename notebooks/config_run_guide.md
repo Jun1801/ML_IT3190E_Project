@@ -180,18 +180,18 @@ python scripts/build_features.py --data-root data --split train --output outputs
 python scripts/train.py --features outputs/features_train_50.csv --targets data/train.csv --model bayesian_ridge --n-components 20 --output-dir outputs/models/br_50
 ```
 
-Baseline:
+Baseline (với CV fair):
 
 ```bash
 python scripts/build_features.py --data-root data --split train --output outputs/features_train_200.csv --limit 200 --time-bins 128
-python scripts/train.py --features outputs/features_train_200.csv --targets data/train.csv --model bayesian_ridge --n-components 30 --cv 5 --output-dir outputs/models/br_200_cv
+python scripts/train.py --features outputs/features_train_200.csv --targets data/train.csv --model bayesian_ridge --n-components 30 --cv 5 --sigma-cal-fraction 0.2 --output-dir outputs/models/br_200_cv
 python scripts/train.py --features outputs/features_train_200.csv --targets data/train.csv --model bayesian_ridge --n-components 30 --output-dir outputs/models/br_200
 ```
 
-Search nhỏ:
+Search nhỏ (với CV fair):
 
 ```bash
-python scripts/train.py --features outputs/features_train_200.csv --targets data/train.csv --search --model-candidates bayesian_ridge,ridge,kernel_ridge,extra_trees,boosting --n-components-grid 20,30,40 --output-dir outputs/models/search_200
+python scripts/train.py --features outputs/features_train_200.csv --targets data/train.csv --search --model-candidates bayesian_ridge,ridge,kernel_ridge,extra_trees,boosting --n-components-grid 20,30,40 --sigma-cal-fraction 0.2 --output-dir outputs/models/search_200
 ```
 
 Full:
@@ -212,7 +212,43 @@ python scripts/train.py --features outputs/features_train_full.csv --targets dat
 
 Nếu sample ít mà đặt `n_components=30`, code sẽ tự giảm xuống theo giới hạn PCA. Tuy vậy nên đặt nhỏ đúng với quy mô smoke để metric dễ hiểu hơn.
 
-## 8. Submission flow
+## 8. Fair model benchmark
+
+Dùng `benchmark/run_benchmark.py` thay vì chạy từng model thủ công. Script này đảm bảo:
+
+- **Cùng GroupKFold folds** cho tất cả model — không bị ảnh hưởng bởi luck of split.
+- **sigma_cal_fraction=0.2**: 20% của training fold được giữ riêng để fit `residual_rmse_` và `sigma_calibrator`. Eval fold **không bao giờ** được dùng cho sigma fitting, loại bỏ circular NLL.
+- **Cùng n_components** cho tất cả model — so sánh công bằng.
+
+```bash
+# Benchmark cơ bản (không cần LightGBM/XGBoost)
+python benchmark/run_benchmark.py \
+  --features outputs/features_train_200.csv \
+  --targets data/train.csv \
+  --n-components 30 --n-splits 5 --sigma-cal-fraction 0.2
+
+# Benchmark đầy đủ (cần cài optional dependencies)
+python benchmark/run_benchmark.py \
+  --features outputs/features_train_200.csv \
+  --targets data/train.csv \
+  --models bayesian_ridge,ridge,kernel_ridge,extra_trees,boosting,br_boosting_residual \
+  --include-optional \
+  --n-components 30 --n-splits 5 --sigma-cal-fraction 0.2 \
+  --output benchmark/result_200.csv
+```
+
+Kết quả được lưu vào `benchmark/result.csv` (CSV) và `benchmark/result.json` (kèm metadata).
+
+**Lưu ý về sigma_cal_fraction:**
+
+| sigma_cal_fraction | Ý nghĩa | Khi nào dùng |
+|---|---|---|
+| 0.2 (khuyến nghị) | 20% train fold dùng cho sigma cal, eval fold sạch | So sánh model, chọn model |
+| 0.0 (legacy) | Sigma cal dùng eval fold — circular NLL | Không nên dùng cho so sánh |
+
+Với sigma_cal_fraction=0.2, mỗi fold dùng 80% × 80% = 64% data để train model thực sự. Nếu dataset nhỏ (< 100 planet), có thể giảm xuống 0.1.
+
+## 9. Submission flow
 
 Sau khi có model ổn, build feature cho test rồi tạo submission bằng artifact đã save.
 

@@ -56,6 +56,10 @@ def build_submission_frame(
     sigma = np.maximum(np.asarray(prediction.sigma, dtype=float), 1e-12)
     if mu.shape != sigma.shape:
         raise ValueError("mu and sigma must have the same shape.")
+    if len(planet_ids) != mu.shape[0]:
+        raise ValueError(
+            f"planet_ids length ({len(planet_ids)}) does not match prediction rows ({mu.shape[0]})."
+        )
     if mu.shape[1] != len(schema.mu_columns) or sigma.shape[1] != len(schema.sigma_columns):
         raise ValueError("Prediction target count does not match submission schema.")
 

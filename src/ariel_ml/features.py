@@ -193,11 +193,14 @@ class ArielFeatureBuilder:
         return float(np.nanmean(1.0 - mid_flux / oot_mean))
 
     def _safe_mean(self, values: np.ndarray, axis: int | None = None) -> np.ndarray:
-        mean = np.nanmean(values, axis=axis)
+        with np.errstate(all="ignore"):
+            mean = np.nanmean(np.asarray(values, dtype=float), axis=axis)
+        mean = np.where(np.isfinite(mean), mean, self.config.epsilon)
         return np.where(np.abs(mean) < self.config.epsilon, self.config.epsilon, mean)
 
     def _safe_slope_between(self, curve: np.ndarray, left: int, right: int) -> float:
-        if right <= left or left < 0 or right >= curve.size:
+        right = min(right, curve.size - 1)
+        if right <= left or left < 0:
             return 0.0
         return float((curve[right] - curve[left]) / max(1, right - left))
 
