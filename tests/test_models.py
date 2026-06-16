@@ -9,6 +9,7 @@ from ariel_ml.config import ModelConfig
 from ariel_ml.metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, gaussian_nll
 from ariel_ml.models import (
     MODEL_FAMILIES,
+    _resolve_device,
     BayesianRidgePCARegressor,
     BoostingPCARegressor,
     ExtraTreesPCARegressor,
@@ -169,6 +170,21 @@ class ModelTests(unittest.TestCase):
             prediction = model.predict(x[32:])
             self.assertEqual(prediction.mu.shape, y[32:].shape, msg=name)
             self.assertTrue(np.all(prediction.sigma > 0), msg=name)
+
+    def test_resolve_device_maps_gpu_flag_per_framework(self):
+        self.assertEqual(_resolve_device(True, "xgboost"), "cuda")
+        self.assertEqual(_resolve_device(False, "xgboost"), "cpu")
+        self.assertEqual(_resolve_device(True, "lightgbm"), "gpu")
+        self.assertEqual(_resolve_device(False, "lightgbm"), "cpu")
+        with self.assertRaises(ValueError):
+            _resolve_device(True, "sklearn")
+
+    def test_use_gpu_is_ignored_by_cpu_only_models(self):
+        # use_gpu must not break models that have no GPU backend.
+        x, y = make_synthetic_regression(n_samples=24, n_targets=8)
+        model = ModelFactory.create("ridge", ModelConfig(n_components=2, calibrate_sigma=False, use_gpu=True))
+        model.fit(x, y)
+        self.assertEqual(model.predict(x[:3]).mu.shape, (3, y.shape[1]))
 
     def test_model_families_cover_listed_models(self):
         flat = ModelFactory.list_models()

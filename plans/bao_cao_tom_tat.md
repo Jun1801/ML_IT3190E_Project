@@ -156,7 +156,7 @@ Kết hợp các họ thành một hỗn hợp Gauss, **trọng số = softmax(v
 | Exp 2 | So sánh **7 họ mô hình** trên cùng fold (benchmark harness) | RMSE, GLL, coverage |
 | Exp 3 | Direct 283-target vs Target PCA | RMSE, GLL |
 | **Exp 4** | **Ablation PHC** (xem dưới) | **Ariel GLL** |
-| Exp 5 | So sánh nhóm deep learning | RMSE, GLL |
+| Exp 5 | So sánh nhóm deep sequence (CNN1D/TCN/LSTM/GRU/Transformer/AE) trên light curve thô | RMSE, GLL |
 | Exp 6 | Family-mixture theo GLL (PHC bước 3) | Ariel GLL |
 
 **Bảng ablation chủ đạo (Exp 4) — đóng góp cốt lõi:**

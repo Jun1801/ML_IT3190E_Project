@@ -74,6 +74,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="PHC step 2: per-wavelength scale times a feature-conditioned per-observation multiplier.",
     )
+    parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Use GPU for LightGBM (device=gpu) and XGBoost (device=cuda). Other models stay on CPU.",
+    )
     parser.add_argument("--no-refit-full", action="store_true")
     return parser.parse_args()
 
@@ -96,6 +101,7 @@ def main() -> None:
         calibrate_sigma=not args.no_sigma_calibration,
         sigma_per_target=args.sigma_per_target,
         sigma_feature_conditioned=args.sigma_feature_conditioned,
+        use_gpu=args.gpu,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 

@@ -57,6 +57,11 @@ from ariel_ml.models import (
     XGBoostPCARegressor,
 )
 from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
+from ariel_ml.sequence_dataset import (
+    SequenceDataset,
+    build_sequence_dataset,
+    observation_sequence,
+)
 from ariel_ml.preprocessing import (
     CalibrationBundle,
     CalibrationMetrics,
@@ -139,6 +144,7 @@ __all__ = [
     "ResidualCorrectedRegressor",
     "SVRPCARegressor",
     "SearchCandidateResult",
+    "SequenceDataset",
     "SigmaCalibrator",
     "SubmissionSchema",
     "TCNRegressor",
@@ -156,6 +162,7 @@ __all__ = [
     "ariel_naive_reference",
     "benchmark_models",
     "build_gll_weighted_ensemble",
+    "build_sequence_dataset",
     "build_submission_frame",
     "cross_validate_model",
     "family_of",
@@ -165,6 +172,7 @@ __all__ = [
     "gaussian_nll",
     "hyperparameter_search",
     "infer_submission_schema",
+    "observation_sequence",
     "predict_submission",
     "refit_full_model",
     "rmse_per_target",

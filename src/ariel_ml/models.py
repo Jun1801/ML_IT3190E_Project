@@ -31,6 +31,15 @@ class ModelPrediction:
     sigma: np.ndarray
 
 
+def _resolve_device(use_gpu: bool, framework: str) -> str:
+    """Map ``ModelConfig.use_gpu`` to the device string of a GBM framework."""
+    if framework == "xgboost":
+        return "cuda" if use_gpu else "cpu"
+    if framework == "lightgbm":
+        return "gpu" if use_gpu else "cpu"
+    raise ValueError(f"Unknown GBM framework: {framework}")
+
+
 class TargetPCARegressor:
     def __init__(
         self,
@@ -293,6 +302,7 @@ class LightGBMPCARegressor(TargetPCARegressor):
             colsample_bytree=colsample_bytree,
             random_state=cfg.random_state,
             n_jobs=n_jobs,
+            device=_resolve_device(cfg.use_gpu, "lightgbm"),
             verbosity=-1,
         )
 
@@ -346,7 +356,7 @@ class XGBoostPCARegressor(TargetPCARegressor):
             subsample=subsample,
             colsample_bytree=colsample_bytree,
             tree_method="hist",
-            device="cpu",
+            device=_resolve_device(cfg.use_gpu, "xgboost"),
             random_state=cfg.random_state,
             n_jobs=n_jobs,
         )

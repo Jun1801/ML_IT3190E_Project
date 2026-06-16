@@ -18,6 +18,7 @@ src/ariel_ml/              # Main reusable library (13 modules)
   deep_models.py           # Deep learning baselines (CNN1D, LSTM, GRU, TCN, Transformer, Autoencoder)
   training.py              # Training pipeline with CV, hyperparameter search, evaluation
   dataset_builder.py       # Data loading and feature building from raw observations
+  sequence_dataset.py      # Build [samples, time, channels] light-curve tensors for deep sequence models
   pipeline.py              # End-to-end orchestration
   config.py                # Configuration dataclasses (PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
   metrics.py               # Evaluation metrics (RMSE, Gaussian NLL, official Ariel GLL score, sigma calibration)

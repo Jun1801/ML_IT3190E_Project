@@ -50,6 +50,7 @@ class ModelConfig:
     calibrate_sigma: bool = True
     sigma_per_target: bool = False
     sigma_feature_conditioned: bool = False
+    use_gpu: bool = False  # only LightGBM/XGBoost consult this; other models ignore it
     random_state: int = 42
     model_params: dict[str, Any] = field(default_factory=dict)
 
