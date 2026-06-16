@@ -22,7 +22,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 
 from ariel_ml.config import ModelConfig
-from ariel_ml.metrics import SigmaCalibrator, rmse_per_target
+from ariel_ml.metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, rmse_per_target
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,13 @@ class TargetPCARegressor:
         self.pca: PCA | None = None
         self.models: list[RegressorMixin] = []
         self.residual_rmse_: np.ndarray | None = None
-        self.sigma_calibrator = SigmaCalibrator(sigma_floor=self.config.sigma_floor)
+        if self.config.sigma_feature_conditioned:
+            self.sigma_calibrator = FeatureConditionedSigmaCalibrator(sigma_floor=self.config.sigma_floor)
+        else:
+            self.sigma_calibrator = SigmaCalibrator(
+                sigma_floor=self.config.sigma_floor,
+                per_target=self.config.sigma_per_target,
+            )
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -83,14 +89,17 @@ class TargetPCARegressor:
                 floor=self.config.residual_floor,
             )
             if self.config.calibrate_sigma:
-                self.sigma_calibrator.fit(residual_y, residual_pred.mu, residual_pred.sigma)
+                self.sigma_calibrator.fit(
+                    residual_y, residual_pred.mu, residual_pred.sigma, self._transform_x(residual_x)
+                )
         return self
 
     def predict(self, x: np.ndarray) -> ModelPrediction:
         prediction = self._predict_uncalibrated(x)
+        x_scaled = self._transform_x(np.asarray(x, dtype=float))
         return ModelPrediction(
             mu=prediction.mu,
-            sigma=self.sigma_calibrator.transform(prediction.sigma),
+            sigma=self.sigma_calibrator.transform(prediction.sigma, x_scaled),
         )
 
     def _predict_uncalibrated(self, x: np.ndarray) -> ModelPrediction:

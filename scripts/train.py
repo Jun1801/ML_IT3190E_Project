@@ -64,6 +64,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--no-sigma-calibration", action="store_true")
+    parser.add_argument(
+        "--sigma-per-target",
+        action="store_true",
+        help="Calibrate a per-wavelength sigma scale (GLL-optimal) instead of one global scalar.",
+    )
     parser.add_argument("--no-refit-full", action="store_true")
     return parser.parse_args()
 
@@ -84,6 +89,7 @@ def main() -> None:
         n_components=args.n_components,
         random_state=args.random_state,
         calibrate_sigma=not args.no_sigma_calibration,
+        sigma_per_target=args.sigma_per_target,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 

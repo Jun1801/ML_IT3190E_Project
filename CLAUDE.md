@@ -228,6 +228,7 @@ Output: `dict[str, float]` of ~50–150 features per observation
 - Validation sets used to estimate residual RMSE per wavelength
 - Sigma = sqrt(Bayesian_var + residual_RMSE²)
 - `SigmaCalibrator` optimizes scale factor on Gaussian NLL
+- **Per-wavelength calibration (PHC, key proposed method):** with `ModelConfig.sigma_per_target=True` (or `--sigma-per-target`), the calibrator fits an independent scale `s_j` per wavelength. Because GLL is additive over elements and `s_j` only affects column `j`, the GLL-optimal scale has the closed form `s_j = sqrt(mean_i (residual_ij/sigma_ij)²)` (RMS of normalised residuals) — so it directly maximises the official Ariel GLL without iteration. Default stays the legacy global scalar.
 
 ### Cross-Validation
 - Uses `GroupKFold` to prevent leakage (same planet in train/val)

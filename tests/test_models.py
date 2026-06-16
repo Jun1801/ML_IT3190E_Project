@@ -63,6 +63,24 @@ class MetricsTests(unittest.TestCase):
 
         self.assertLess(float(np.mean(calibrated)), 0.02)
 
+    def test_per_target_calibration_beats_scalar_when_miscalibration_differs(self):
+        rng = np.random.default_rng(0)
+        n = 400
+        # Column 0 is over-confident (sigma too small); column 1 under-confident.
+        y = np.column_stack([rng.normal(0.0, 0.1, n), rng.normal(0.0, 0.001, n)])
+        mu = np.zeros_like(y)
+        sigma = np.column_stack([np.full(n, 0.01), np.full(n, 0.1)])
+
+        scalar = SigmaCalibrator(per_target=False).fit(y, mu, sigma)
+        per_target = SigmaCalibrator(per_target=True).fit(y, mu, sigma)
+
+        nll_scalar = gaussian_nll(y, mu, scalar.transform(sigma))
+        nll_per_target = gaussian_nll(y, mu, per_target.transform(sigma))
+
+        self.assertLess(nll_per_target, nll_scalar)
+        self.assertEqual(np.shape(per_target.scale_), (2,))
+        self.assertTrue(np.isscalar(scalar.scale_))
+
 
 class ModelTests(unittest.TestCase):
     def test_bayesian_ridge_pca_fit_predict_shapes_and_positive_sigma(self):

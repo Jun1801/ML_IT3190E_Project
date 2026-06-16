@@ -48,6 +48,8 @@ class ModelConfig:
     residual_floor: float = 1e-8
     sigma_floor: float = 1e-8
     calibrate_sigma: bool = True
+    sigma_per_target: bool = False
+    sigma_feature_conditioned: bool = False
     random_state: int = 42
     model_params: dict[str, Any] = field(default_factory=dict)
 
