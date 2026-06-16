@@ -65,6 +65,18 @@ class TorchSequenceRegressor:
             sigma = self.torch.nn.functional.softplus(log_sigma) + self.config.sigma_floor
         return ModelPrediction(mu=mu.cpu().numpy(), sigma=sigma.cpu().numpy())
 
+    def save_weights(self, path) -> None:
+        if self.model is None:
+            raise RuntimeError("Model must be fitted before saving weights.")
+        self.torch.save(self.model.state_dict(), path)
+
+    def load_weights(self, path, n_time: int, n_channels: int, n_targets: int) -> "TorchSequenceRegressor":
+        self.n_targets_ = n_targets
+        self.model = self._build_model(n_time, n_channels, n_targets).to(self.device)
+        self.model.load_state_dict(self.torch.load(path, map_location=self.device))
+        self.model.eval()
+        return self
+
     def _select_device(self):
         if self.config.device != "auto":
             return self.torch.device(self.config.device)

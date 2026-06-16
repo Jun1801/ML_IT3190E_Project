@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/luuvanson/Desktop/ML_IT3190E_Project remote -v)"
+    ]
+  }
+}
