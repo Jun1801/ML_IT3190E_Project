@@ -139,6 +139,14 @@ class _HeadMixin:
     def _split(self, output):
         return output.chunk(2, dim=-1)
 
+    def state_dict(self) -> dict:
+        return {k: v.state_dict() for k, v in vars(self).items()
+                if hasattr(v, "state_dict") and callable(v.state_dict)}
+
+    def load_state_dict(self, state: dict) -> None:
+        for k, sd in state.items():
+            getattr(self, k).load_state_dict(sd)
+
 
 class _CNN1DRegressor(_HeadMixin):
     def __init__(self, nn, n_channels: int, n_targets: int, config: DeepModelConfig) -> None:
@@ -212,10 +220,12 @@ class _RNNRegressor(_HeadMixin):
 
     def train(self):
         self.rnn.train()
+        self.dropout.train()
         self.head.train()
 
     def eval(self):
         self.rnn.eval()
+        self.dropout.eval()
         self.head.eval()
 
     def __call__(self, x):
