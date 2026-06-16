@@ -69,6 +69,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Calibrate a per-wavelength sigma scale (GLL-optimal) instead of one global scalar.",
     )
+    parser.add_argument(
+        "--sigma-feature-conditioned",
+        action="store_true",
+        help="PHC step 2: per-wavelength scale times a feature-conditioned per-observation multiplier.",
+    )
     parser.add_argument("--no-refit-full", action="store_true")
     return parser.parse_args()
 
@@ -90,6 +95,7 @@ def main() -> None:
         random_state=args.random_state,
         calibrate_sigma=not args.no_sigma_calibration,
         sigma_per_target=args.sigma_per_target,
+        sigma_feature_conditioned=args.sigma_feature_conditioned,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 

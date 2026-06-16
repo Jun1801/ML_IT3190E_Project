@@ -6,6 +6,7 @@ import pandas as pd
 from ariel_ml.config import ModelConfig
 from ariel_ml.models import ModelPrediction
 from ariel_ml.training import (
+    build_gll_weighted_ensemble,
     cross_validate_model,
     evaluate_prediction,
     feature_dicts_to_frame,
@@ -132,6 +133,24 @@ class TrainingTests(unittest.TestCase):
         )
         nll = [c.mean_metrics["gaussian_nll"] for c in result.candidates]
         self.assertAlmostEqual(result.best_candidate.mean_metrics["gaussian_nll"], min(nll))
+
+    def test_gll_weighted_ensemble_weights_and_predicts(self):
+        x, y = synthetic_data(n_samples=48)
+        result = build_gll_weighted_ensemble(
+            x,
+            y,
+            model_names=("bayesian_ridge", "knn"),
+            model_config=ModelConfig(n_components=3, calibrate_sigma=True),
+            validation_fraction=0.3,
+        )
+
+        # Weights form a valid distribution and follow the validation scores.
+        self.assertAlmostEqual(float(np.sum(result.weights)), 1.0)
+        self.assertEqual(int(np.argmax(result.weights)), int(np.argmax(result.val_scores)))
+
+        prediction = result.ensemble.predict(x[:4])
+        self.assertEqual(prediction.mu.shape, (4, y.shape[1]))
+        self.assertTrue(np.all(prediction.sigma > 0))
 
     def test_hyperparameter_search_with_model_params_grid(self):
         x, y = synthetic_data(n_samples=24)

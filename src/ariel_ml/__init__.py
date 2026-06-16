@@ -23,6 +23,7 @@ from ariel_ml.deep_models import (
 )
 from ariel_ml.features import ArielFeatureBuilder
 from ariel_ml.metrics import (
+    FeatureConditionedSigmaCalibrator,
     SigmaCalibrator,
     ariel_gll_score,
     ariel_naive_reference,
@@ -75,10 +76,12 @@ from ariel_ml.submission import (
 )
 from ariel_ml.training import (
     CrossValidationResult,
+    EnsembleBuildResult,
     EvaluationResult,
     HyperparameterSearchResult,
     SearchCandidateResult,
     TrainResult,
+    build_gll_weighted_ensemble,
     cross_validate_model,
     evaluate_prediction,
     feature_dicts_to_frame,
@@ -107,7 +110,9 @@ __all__ = [
     "DeepModelConfig",
     "DetectorCalibrator",
     "ElasticNetPCARegressor",
+    "EnsembleBuildResult",
     "EvaluationResult",
+    "FeatureConditionedSigmaCalibrator",
     "ExtraTreesPCARegressor",
     "FeatureConfig",
     "FeatureBuildResult",
@@ -150,6 +155,7 @@ __all__ = [
     "ariel_gll_score",
     "ariel_naive_reference",
     "benchmark_models",
+    "build_gll_weighted_ensemble",
     "build_submission_frame",
     "cross_validate_model",
     "family_of",

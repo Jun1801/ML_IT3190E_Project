@@ -10,7 +10,13 @@ from sklearn.model_selection import GroupKFold, KFold, train_test_split
 
 from ariel_ml.config import ModelConfig
 from ariel_ml.metrics import ariel_gll_score, ariel_naive_reference, gaussian_nll, rmse_per_target
-from ariel_ml.models import ModelFactory, ModelPrediction, ResidualCorrectedRegressor, TargetPCARegressor
+from ariel_ml.models import (
+    ModelFactory,
+    ModelPrediction,
+    ResidualCorrectedRegressor,
+    TargetPCARegressor,
+    WeightedEnsembleRegressor,
+)
 
 # Metrics where a larger value is a better model (everything else is minimised).
 HIGHER_IS_BETTER_METRICS: frozenset[str] = frozenset({"ariel_gll_score"})
@@ -335,3 +341,76 @@ def make_cv_splitter(n_splits: int, groups: np.ndarray | None, random_state: int
     if groups is None:
         return KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     return GroupKFold(n_splits=n_splits)
+
+
+@dataclass(frozen=True)
+class EnsembleBuildResult:
+    ensemble: WeightedEnsembleRegressor
+    model_names: list[str]
+    weights: np.ndarray
+    val_scores: np.ndarray
+
+
+def build_gll_weighted_ensemble(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    model_names: Iterable[str],
+    model_config: ModelConfig | None = None,
+    validation_fraction: float = 0.2,
+    groups: np.ndarray | None = None,
+    random_state: int = 42,
+    temperature: float = 0.1,
+    sigma_true: float = 1e-5,
+) -> EnsembleBuildResult:
+    """PHC step 3 — probabilistic mixture of model families weighted by GLL.
+
+    Each model is fitted on a training split and scored on a held-out split with
+    the official ``ariel_gll_score``. Mixture weights are ``softmax(score / temperature)``
+    so better-calibrated families dominate, and predictions are combined as a
+    Gaussian mixture (means + second moments) by ``WeightedEnsembleRegressor``.
+    """
+    names = [str(name) for name in model_names]
+    if not names:
+        raise ValueError("build_gll_weighted_ensemble requires at least one model name.")
+    if temperature <= 0.0:
+        raise ValueError("temperature must be positive.")
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    train_idx, val_idx = make_train_validation_split(
+        n_samples=x_arr.shape[0],
+        validation_fraction=validation_fraction,
+        groups=groups,
+        random_state=random_state,
+    )
+    naive_mean, naive_sigma = ariel_naive_reference(y_arr[train_idx])
+
+    models: list[TargetPCARegressor | ResidualCorrectedRegressor] = []
+    scores: list[float] = []
+    for name in names:
+        model = ModelFactory.create(name, model_config)
+        model.fit(x_arr[train_idx], y_arr[train_idx], x_val=x_arr[val_idx], y_val=y_arr[val_idx])
+        prediction = model.predict(x_arr[val_idx])
+        scores.append(
+            ariel_gll_score(
+                y_arr[val_idx],
+                prediction.mu,
+                prediction.sigma,
+                naive_mean=naive_mean,
+                naive_sigma=naive_sigma,
+                sigma_true=sigma_true,
+            )
+        )
+        models.append(model)
+
+    score_arr = np.asarray(scores, dtype=float)
+    logits = (score_arr - np.max(score_arr)) / temperature
+    weights = np.exp(logits)
+    weights = weights / np.sum(weights)
+    ensemble = WeightedEnsembleRegressor(models, weights.tolist())
+    return EnsembleBuildResult(
+        ensemble=ensemble,
+        model_names=names,
+        weights=weights,
+        val_scores=score_arr,
+    )

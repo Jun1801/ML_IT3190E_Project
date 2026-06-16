@@ -228,7 +228,11 @@ Output: `dict[str, float]` of ~50–150 features per observation
 - Validation sets used to estimate residual RMSE per wavelength
 - Sigma = sqrt(Bayesian_var + residual_RMSE²)
 - `SigmaCalibrator` optimizes scale factor on Gaussian NLL
-- **Per-wavelength calibration (PHC, key proposed method):** with `ModelConfig.sigma_per_target=True` (or `--sigma-per-target`), the calibrator fits an independent scale `s_j` per wavelength. Because GLL is additive over elements and `s_j` only affects column `j`, the GLL-optimal scale has the closed form `s_j = sqrt(mean_i (residual_ij/sigma_ij)²)` (RMS of normalised residuals) — so it directly maximises the official Ariel GLL without iteration. Default stays the legacy global scalar.
+- **PHC — Physics-conditioned Heteroscedastic Calibration (key proposed method), 3 steps:**
+  - **Step 1 — per-wavelength scale** (`ModelConfig.sigma_per_target=True` / `--sigma-per-target`): fits an independent `s_j` per wavelength. GLL is additive over elements and `s_j` only affects column `j`, so the GLL-optimal scale has the closed form `s_j = sqrt(mean_i (residual_ij/sigma_ij)²)` (RMS of normalised residuals) — maximises the official Ariel GLL without iteration.
+  - **Step 2 — feature-conditioned multiplier** (`ModelConfig.sigma_feature_conditioned=True` / `--sigma-feature-conditioned`, class `FeatureConditionedSigmaCalibrator`): `σ_ij = s_j · m_i · σ_ij`. The per-row GLL-optimal multiplier `t_i = sqrt(mean_j (residual_ij/(s_j σ_ij))²)` also has a closed form; we regress `log t_i` on the (standardised) features via ridge, so noisier observations get wider intervals.
+  - **Step 3 — GLL-weighted family mixture** (`training.build_gll_weighted_ensemble`): fits one model per family, scores each on a held-out split with `ariel_gll_score`, sets mixture weights `= softmax(score/temperature)`, and combines via `WeightedEnsembleRegressor` (Gaussian mixture of means + second moments).
+  - Default stays the legacy global scalar calibration.
 
 ### Cross-Validation
 - Uses `GroupKFold` to prevent leakage (same planet in train/val)

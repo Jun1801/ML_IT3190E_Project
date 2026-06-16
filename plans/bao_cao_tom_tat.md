@@ -116,17 +116,27 @@ tức **RMS của residual chuẩn hóa theo cột**. Đây đồng thời là s
 
 **Ý nghĩa vật lý:** bước sóng nhiễu cao tự động nhận khoảng tin cậy rộng hơn — đúng bản chất instrument và đúng thứ GLL tưởng thưởng.
 
-#### Bước 2 (lộ trình) — Scale điều kiện theo đặc trưng nhiễu
+#### Bước 2 (đã triển khai) — Scale điều kiện theo đặc trưng nhiễu
 
 $$
-\sigma_j(x) = s_j \cdot g_\theta\big(\text{noise\_features}(x)\big)
+\sigma_{ij} = s_j \cdot m_i \cdot \sigma_{ij}, \qquad m_i = \exp\big(\text{features}_i \cdot w\big)
 $$
 
-với $g_\theta$ ánh xạ các feature nhiễu sẵn có (`oot_std`, `snr_depth`, `cds_noise_proxy`, `bad_pixel_count`…) → bội số scale theo từng quan sát. Cho phép bất định thay đổi theo **cả bước sóng lẫn từng hành tinh**.
+Tương tự $s_j$, **bội số tối ưu GLL cho mỗi hàng cũng có nghiệm đóng**: sau khi áp $s_j$,
 
-#### Bước 3 (lộ trình) — Mixture xác suất các họ mô hình theo GLL
+$$
+t_i = \sqrt{\tfrac{1}{M}\sum_j \Big(\frac{y_{ij}-\mu_{ij}}{s_j\sigma_{ij}}\Big)^2}
+$$
 
-Kết hợp các họ thành một hỗn hợp Gauss, **trọng số = softmax(validation GLL)**, cộng phương sai đúng kiểu mixture (đã có sẵn trong `WeightedEnsembleRegressor`). Biến phần "so sánh các họ" thành **đóng góp ensemble thật sự**.
+Ta **hồi quy $\log t_i$ theo các feature** (ridge log-space) → $g_\theta$ ánh xạ noise features (`oot_std`, `snr_depth`, `cds_noise_proxy`, `bad_pixel_count`…) thành bội số scale. Cho phép bất định thay đổi theo **cả bước sóng lẫn từng hành tinh**.
+
+> Implement: `FeatureConditionedSigmaCalibrator`; bật qua `ModelConfig.sigma_feature_conditioned` hoặc `--sigma-feature-conditioned`.
+
+#### Bước 3 (đã triển khai) — Mixture xác suất các họ mô hình theo GLL
+
+Kết hợp các họ thành một hỗn hợp Gauss, **trọng số = softmax(validation GLL / temperature)**, cộng phương sai đúng kiểu mixture. Biến phần "so sánh các họ" thành **đóng góp ensemble thật sự**.
+
+> Implement: `training.build_gll_weighted_ensemble(...)` → `EnsembleBuildResult` (ensemble + trọng số + điểm GLL từng họ), dùng `WeightedEnsembleRegressor`.
 
 ### 3.4. Vì sao phương pháp này độc đáo & hiệu quả
 
@@ -155,9 +165,11 @@ Kết hợp các họ thành một hỗn hợp Gauss, **trọng số = softmax(v
 |---|---|
 | Không calibrate | (thấp) |
 | Scalar toàn cục (baseline) | baseline |
-| **Per-wavelength $s_j$** (PHC bước 1 — đã làm) | + Δ₁ |
+| **Per-wavelength $s_j$** (PHC bước 1) | + Δ₁ |
 | + Feature-conditioned $g_\theta$ (bước 2) | + Δ₂ |
 | + Family-mixture theo GLL (bước 3) | + Δ₃ |
+
+> Cả 3 bước PHC đã được triển khai và verify trên dữ liệu synthetic (GLL tăng đơn điệu qua từng bước). Số liệu Δ cụ thể điền sau khi chạy trên dữ liệu Ariel thật.
 
 Kèm **reliability diagram** (coverage thực nghiệm vs danh nghĩa) và biểu đồ $\sigma$ theo bước sóng chồng lên phổ nhiễu để minh họa calibration.
 

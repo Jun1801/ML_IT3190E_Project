@@ -6,7 +6,7 @@ import joblib
 import numpy as np
 
 from ariel_ml.config import ModelConfig
-from ariel_ml.metrics import SigmaCalibrator, gaussian_nll
+from ariel_ml.metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, gaussian_nll
 from ariel_ml.models import (
     MODEL_FAMILIES,
     BayesianRidgePCARegressor,
@@ -80,6 +80,38 @@ class MetricsTests(unittest.TestCase):
         self.assertLess(nll_per_target, nll_scalar)
         self.assertEqual(np.shape(per_target.scale_), (2,))
         self.assertTrue(np.isscalar(scalar.scale_))
+
+    def test_feature_conditioned_beats_per_target_when_noise_depends_on_feature(self):
+        rng = np.random.default_rng(0)
+        n_rows, n_cols = 300, 12
+        feature = rng.uniform(-1.0, 1.0, n_rows)
+        row_scale = np.exp(0.9 * feature)  # per-row noise multiplier driven by feature 0
+        col_sigma = 0.01 * (1.0 + np.arange(n_cols))  # heteroscedastic columns
+        noise = rng.normal(size=(n_rows, n_cols)) * (row_scale[:, None] * col_sigma[None, :])
+        mu = np.zeros((n_rows, n_cols))
+        y = mu + noise
+        sigma = np.tile(col_sigma, (n_rows, 1))  # right columns, but blind to per-row scale
+        x = np.column_stack([feature, rng.normal(size=n_rows)])  # feature 0 informative, 1 noise
+
+        per_target = SigmaCalibrator(per_target=True).fit(y, mu, sigma)
+        feature_cond = FeatureConditionedSigmaCalibrator().fit(y, mu, sigma, x)
+
+        nll_per_target = gaussian_nll(y, mu, per_target.transform(sigma))
+        nll_feature_cond = gaussian_nll(y, mu, feature_cond.transform(sigma, x))
+
+        self.assertLess(nll_feature_cond, nll_per_target)
+
+    def test_feature_conditioned_falls_back_without_features(self):
+        x, y = make_synthetic_regression(n_samples=40, n_targets=8)
+        mu = np.zeros_like(y)
+        sigma = np.full_like(y, 0.05)
+        calibrator = FeatureConditionedSigmaCalibrator().fit(y, mu, sigma, None)
+
+        self.assertIsNone(calibrator.weights_)
+        # With no feature regression the multiplier is identity -> pure per-wavelength scale.
+        calibrated = calibrator.transform(sigma, None)
+        self.assertEqual(calibrated.shape, sigma.shape)
+        self.assertTrue(np.all(calibrated > 0))
 
 
 class ModelTests(unittest.TestCase):
