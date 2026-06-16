@@ -14,6 +14,7 @@ dependencies = [
 [project.optional-dependencies]
 full = [
     "lightgbm",
+    "ngboost",
     "torch",
     "xgboost",
 ]

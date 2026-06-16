@@ -9,8 +9,11 @@ import pandas as pd
 from sklearn.model_selection import GroupKFold, KFold, train_test_split
 
 from ariel_ml.config import ModelConfig
-from ariel_ml.metrics import gaussian_nll, rmse_per_target
+from ariel_ml.metrics import ariel_gll_score, ariel_naive_reference, gaussian_nll, rmse_per_target
 from ariel_ml.models import ModelFactory, ModelPrediction, ResidualCorrectedRegressor, TargetPCARegressor
+
+# Metrics where a larger value is a better model (everything else is minimised).
+HIGHER_IS_BETTER_METRICS: frozenset[str] = frozenset({"ariel_gll_score"})
 
 
 @dataclass(frozen=True)
@@ -19,6 +22,7 @@ class EvaluationResult:
     rmse_per_target: np.ndarray
     mae_mean: float
     gaussian_nll: float
+    ariel_gll_score: float
     sigma_mean: float
     sigma_min: float
     sigma_max: float
@@ -31,6 +35,7 @@ class EvaluationResult:
             f"{prefix}rmse_mean": self.rmse_mean,
             f"{prefix}mae_mean": self.mae_mean,
             f"{prefix}gaussian_nll": self.gaussian_nll,
+            f"{prefix}ariel_gll_score": self.ariel_gll_score,
             f"{prefix}sigma_mean": self.sigma_mean,
             f"{prefix}sigma_min": self.sigma_min,
             f"{prefix}sigma_max": self.sigma_max,
@@ -85,7 +90,13 @@ def targets_to_matrix(targets: pd.DataFrame, *, id_column: str = "planet_id") ->
     return targets[target_columns].to_numpy(dtype=float), target_columns
 
 
-def evaluate_prediction(y_true: np.ndarray, prediction: ModelPrediction) -> EvaluationResult:
+def evaluate_prediction(
+    y_true: np.ndarray,
+    prediction: ModelPrediction,
+    *,
+    naive_reference: tuple[float, float] | None = None,
+    sigma_true: float = 1e-5,
+) -> EvaluationResult:
     y_true = np.asarray(y_true, dtype=float)
     mu = np.asarray(prediction.mu, dtype=float)
     sigma = np.maximum(np.asarray(prediction.sigma, dtype=float), 1e-12)
@@ -94,11 +105,18 @@ def evaluate_prediction(y_true: np.ndarray, prediction: ModelPrediction) -> Eval
     abs_error = np.abs(residual)
     within_1sigma = abs_error <= sigma
     within_2sigma = abs_error <= 2.0 * sigma
+    # When no training reference is supplied, derive the naive baseline from the
+    # evaluation targets themselves. All models scored on a given fold share the
+    # same reference, so cross-model comparison stays fair.
+    naive_mean, naive_sigma = naive_reference if naive_reference is not None else ariel_naive_reference(y_true)
     return EvaluationResult(
         rmse_mean=float(np.mean(rmse)),
         rmse_per_target=rmse,
         mae_mean=float(np.mean(abs_error)),
         gaussian_nll=gaussian_nll(y_true, mu, sigma),
+        ariel_gll_score=ariel_gll_score(
+            y_true, mu, sigma, naive_mean=naive_mean, naive_sigma=naive_sigma, sigma_true=sigma_true
+        ),
         sigma_mean=float(np.mean(sigma)),
         sigma_min=float(np.min(sigma)),
         sigma_max=float(np.max(sigma)),
@@ -209,8 +227,13 @@ def hyperparameter_search(
     groups: np.ndarray | None = None,
     random_state: int = 42,
     selection_metric: str = "gaussian_nll",
+    maximize: bool | None = None,
     sigma_cal_fraction: float = 0.0,
 ) -> HyperparameterSearchResult:
+    # ariel_gll_score is higher-is-better; gaussian_nll/rmse are lower-is-better.
+    # Auto-infer the direction from the metric unless explicitly overridden.
+    if maximize is None:
+        maximize = selection_metric in HIGHER_IS_BETTER_METRICS
     base = base_config or ModelConfig(random_state=random_state)
     params_list: list[dict] = model_params_grid if model_params_grid else [{}]
     candidates: list[SearchCandidateResult] = []
@@ -242,7 +265,8 @@ def hyperparameter_search(
                 )
     if not candidates:
         raise ValueError("hyperparameter_search requires at least one candidate.")
-    best = min(candidates, key=lambda item: item.mean_metrics[selection_metric])
+    chooser = max if maximize else min
+    best = chooser(candidates, key=lambda item: item.mean_metrics[selection_metric])
     return HyperparameterSearchResult(candidates=candidates, best_candidate=best)
 
 

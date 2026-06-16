@@ -102,6 +102,37 @@ class TrainingTests(unittest.TestCase):
         prediction = model.predict(x[:3])
         self.assertEqual(prediction.mu.shape, (3, y.shape[1]))
 
+    def test_search_by_ariel_gll_score_picks_highest(self):
+        x, y = synthetic_data(n_samples=30)
+        result = hyperparameter_search(
+            x,
+            y,
+            model_names=("ridge", "knn"),
+            n_components_grid=(1, 2),
+            base_config=ModelConfig(calibrate_sigma=False),
+            n_splits=3,
+            selection_metric="ariel_gll_score",
+        )
+        scores = [c.mean_metrics["ariel_gll_score"] for c in result.candidates]
+        # Higher-is-better metric: the best candidate must be the maximum.
+        self.assertAlmostEqual(
+            result.best_candidate.mean_metrics["ariel_gll_score"], max(scores)
+        )
+
+    def test_search_by_nll_still_minimises(self):
+        x, y = synthetic_data(n_samples=30)
+        result = hyperparameter_search(
+            x,
+            y,
+            model_names=("ridge",),
+            n_components_grid=(1, 2, 3),
+            base_config=ModelConfig(calibrate_sigma=False),
+            n_splits=3,
+            selection_metric="gaussian_nll",
+        )
+        nll = [c.mean_metrics["gaussian_nll"] for c in result.candidates]
+        self.assertAlmostEqual(result.best_candidate.mean_metrics["gaussian_nll"], min(nll))
+
     def test_hyperparameter_search_with_model_params_grid(self):
         x, y = synthetic_data(n_samples=24)
         result = hyperparameter_search(

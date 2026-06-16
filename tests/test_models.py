@@ -8,6 +8,7 @@ import numpy as np
 from ariel_ml.config import ModelConfig
 from ariel_ml.metrics import SigmaCalibrator, gaussian_nll
 from ariel_ml.models import (
+    MODEL_FAMILIES,
     BayesianRidgePCARegressor,
     BoostingPCARegressor,
     ExtraTreesPCARegressor,
@@ -103,6 +104,29 @@ class ModelTests(unittest.TestCase):
             prediction = model.predict(x[:4])
             self.assertEqual(prediction.mu.shape, (4, y.shape[1]))
             self.assertTrue(np.all(prediction.sigma > 0))
+
+    def test_factory_builds_every_sklearn_family_model(self):
+        x, y = make_synthetic_regression(n_samples=40, n_targets=10)
+        config = ModelConfig(n_components=3, calibrate_sigma=False)
+        # ngboost / lightgbm / xgboost are optional deps not installed here.
+        optional = {"ngboost", "lightgbm", "xgboost", "br_lgbm_residual"}
+        names = [name for name in ModelFactory.list_models() if name not in optional]
+        self.assertIn("svr", names)
+        self.assertIn("knn", names)
+        for name in names:
+            model = ModelFactory.create(name, config)
+            model.fit(x[:32], y[:32])
+            prediction = model.predict(x[32:])
+            self.assertEqual(prediction.mu.shape, y[32:].shape, msg=name)
+            self.assertTrue(np.all(prediction.sigma > 0), msg=name)
+
+    def test_model_families_cover_listed_models(self):
+        flat = ModelFactory.list_models()
+        self.assertEqual(sorted(flat), sorted(set(flat)))  # no duplicates
+        self.assertEqual(
+            set(flat),
+            {name for names in MODEL_FAMILIES.values() for name in names},
+        )
 
     def test_residual_corrected_model_trains_and_predicts(self):
         x, y = make_synthetic_regression(n_samples=36, n_targets=8)

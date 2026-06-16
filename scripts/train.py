@@ -22,6 +22,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-components", type=int, default=30)
     parser.add_argument("--search", action="store_true", help="Run a small model/PCA search before final refit.")
     parser.add_argument(
+        "--selection-metric",
+        default="gaussian_nll",
+        help=(
+            "CV metric used to pick the best --search candidate. "
+            "Use 'ariel_gll_score' for the official metric (higher=better, auto-maximised); "
+            "default 'gaussian_nll' (lower=better)."
+        ),
+    )
+    parser.add_argument(
         "--model-candidates",
         default="bayesian_ridge,ridge,kernel_ridge,extra_trees,boosting",
         help="Comma-separated model names for --search.",
@@ -94,6 +103,7 @@ def main() -> None:
             n_splits=args.cv if args.cv and args.cv > 1 else 5,
             groups=groups,
             random_state=args.random_state,
+            selection_metric=args.selection_metric,
             sigma_cal_fraction=args.sigma_cal_fraction,
         )
         search_rows = [
@@ -110,8 +120,15 @@ def main() -> None:
         )
         args.model = search.best_candidate.model_name
         model_config = search.best_candidate.model_config
-        print("Best candidate:")
-        print(json.dumps(search_rows[min(range(len(search_rows)), key=lambda idx: search_rows[idx]["gaussian_nll"])], indent=2))
+        print(f"Best candidate (by {args.selection_metric}):")
+        print(json.dumps(
+            {
+                "model_name": search.best_candidate.model_name,
+                "n_components": search.best_candidate.model_config.n_components,
+                **search.best_candidate.mean_metrics,
+            },
+            indent=2,
+        ))
 
     elif args.cv and args.cv > 1:
         cv_result = cross_validate_model(

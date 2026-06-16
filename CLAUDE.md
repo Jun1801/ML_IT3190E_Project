@@ -20,7 +20,7 @@ src/ariel_ml/              # Main reusable library (13 modules)
   dataset_builder.py       # Data loading and feature building from raw observations
   pipeline.py              # End-to-end orchestration
   config.py                # Configuration dataclasses (PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
-  metrics.py               # Evaluation metrics (RMSE, Gaussian NLL, sigma calibration)
+  metrics.py               # Evaluation metrics (RMSE, Gaussian NLL, official Ariel GLL score, sigma calibration)
   submission.py            # Submission generation
   io.py                    # Kaggle parquet data repository
   __init__.py              # Public API exports
@@ -93,7 +93,24 @@ python scripts/train.py --features outputs/features_train.csv --targets data/tra
   --model-candidates "bayesian_ridge,ridge,kernel_ridge,extra_trees,boosting,lightgbm" `
   --n-components-grid "20,30,40"
 
-# Available models: bayesian_ridge, ridge, kernel_ridge, extra_trees, boosting, lightgbm, xgboost, br_lgbm_residual
+# Available models (grouped into families via ModelFactory.families()):
+#   linear:     ridge, lasso, elastic_net
+#   bayesian:   bayesian_ridge, ard, gaussian_process, ngboost
+#   kernel_svm: svr, kernel_ridge
+#   neighbors:  knn
+#   trees:      random_forest, extra_trees, boosting, hist_gradient_boosting, lightgbm, xgboost
+#   neural:     mlp
+#   hybrid:     br_lgbm_residual, br_boosting_residual
+```
+
+### Benchmark All Model Families
+```powershell
+# Cross-validate every model on identical folds and emit a comparison table (CSV + stdout).
+# Models with a missing optional dep (lightgbm/xgboost/ngboost) are reported as "skipped", not fatal.
+python scripts/benchmark.py --features outputs/features_train.csv --targets data/train.csv --cv 5 --output outputs/benchmark.csv
+
+# Restrict to a subset of models
+python scripts/benchmark.py --features outputs/features_train.csv --targets data/train.csv --models "bayesian_ridge,svr,random_forest,gaussian_process"
 ```
 
 ## Architecture & Data Flow
@@ -174,7 +191,8 @@ Output: `dict[str, float]` of ~50–150 features per observation
 - `LightCurves`: AIRS (time × wavelength) + FGS (time) + white (time)
 - `TransitBounds`: Transit region indices and convenience masks/slices
 - `ModelPrediction`: (mu: mean spectrum, sigma: uncertainty)
-- `EvaluationResult`: RMSE, MAE, Gaussian NLL, coverage metrics
+- `EvaluationResult`: RMSE, MAE, Gaussian NLL, official Ariel GLL score, coverage metrics
+- Official metric (`ariel_gll_score`): normalized GLL `(GLL_pred - GLL_ref)/(GLL_ideal - GLL_ref)` clipped to [0,1]; ideal sigma = 10 ppm (1e-5), reference = naive train mean/std. Higher is better (opposite direction to gaussian_nll).
 - `TrainResult`: Model + prediction + evaluation + train/val indices
 
 **Training Utilities** (`training.py`):
