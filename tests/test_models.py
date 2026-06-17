@@ -7,7 +7,7 @@ import numpy as np
 
 from config import ModelConfig
 from metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, gaussian_nll
-from models import ResidualCorrectedRegressor
+from models import ResidualCorrectedRegressor, TargetPCARegressor
 from estimators import (
     MODEL_FAMILIES,
     _resolve_device,
@@ -185,6 +185,37 @@ class ModelTests(unittest.TestCase):
         model = ModelFactory.create("ridge", ModelConfig(n_components=2, calibrate_sigma=False, use_gpu=True))
         model.fit(x, y)
         self.assertEqual(model.predict(x[:3]).mu.shape, (3, y.shape[1]))
+
+    def test_predict_handles_estimator_that_swallows_return_std(self):
+        # Mimics LightGBM: predict accepts **kwargs and ignores return_std, returning
+        # a plain array. Unpacking that array used to raise "too many values to unpack".
+        class KwargSwallowingRegressor:
+            def fit(self, x, y):
+                self._mean = float(np.mean(y))
+                return self
+
+            def predict(self, x, **kwargs):
+                return np.full(x.shape[0], self._mean, dtype=float)
+
+        x, y = make_synthetic_regression(n_samples=30, n_targets=8)
+        model = TargetPCARegressor(KwargSwallowingRegressor, ModelConfig(n_components=3, calibrate_sigma=False))
+        model.fit(x[:24], y[:24], x_val=x[24:], y_val=y[24:])
+        prediction = model.predict(x[24:])  # must not raise
+        self.assertEqual(prediction.mu.shape, (6, y.shape[1]))
+        self.assertTrue(np.all(prediction.sigma > 0))
+
+    def test_mlp_uses_target_scaling_and_stays_finite(self):
+        from sklearn.compose import TransformedTargetRegressor
+
+        x, y = make_synthetic_regression(n_samples=40, n_targets=10)
+        model = ModelFactory.create("mlp", ModelConfig(n_components=3, calibrate_sigma=False))
+        model.fit(x[:32], y[:32])
+        self.assertIsInstance(model.models[0], TransformedTargetRegressor)
+        prediction = model.predict(x[32:])
+        self.assertTrue(np.all(np.isfinite(prediction.mu)))
+        self.assertTrue(np.all(np.isfinite(prediction.sigma)))
+        # Predictions stay on the target scale instead of diverging.
+        self.assertLess(float(np.abs(prediction.mu).mean()), 10 * float(np.abs(y).mean()))
 
     def test_model_families_cover_listed_models(self):
         flat = ModelFactory.list_models()

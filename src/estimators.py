@@ -12,8 +12,10 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.linear_model import ARDRegression, BayesianRidge, ElasticNet, Lasso, Ridge
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 
 from config import ModelConfig
@@ -404,21 +406,30 @@ class MLPPCARegressor(TargetPCARegressor):
         config: ModelConfig | None = None,
         *,
         hidden_layer_sizes: tuple[int, ...] = (128, 64),
-        alpha: float = 1e-3,
-        max_iter: int = 500,
+        alpha: float = 1e-2,
+        max_iter: int = 1000,
         learning_rate_init: float = 1e-3,
     ) -> None:
         cfg = config or ModelConfig()
         super().__init__(
-            lambda: MLPRegressor(
-                hidden_layer_sizes=hidden_layer_sizes,
-                alpha=alpha,
-                max_iter=max_iter,
-                learning_rate_init=learning_rate_init,
-                random_state=cfg.random_state,
-            ),
+            lambda: self._create_estimator(cfg, hidden_layer_sizes, alpha, max_iter, learning_rate_init),
             config=cfg,
         )
+
+    def _create_estimator(self, cfg, hidden_layer_sizes, alpha, max_iter, learning_rate_init):
+        # Each PCA component target has its own (small, uncentred) scale; without
+        # standardising it the MLP diverges on little data. Wrap it in a target
+        # scaler and use early stopping + stronger L2 so it stays well-behaved.
+        mlp = MLPRegressor(
+            hidden_layer_sizes=hidden_layer_sizes,
+            alpha=alpha,
+            max_iter=max_iter,
+            learning_rate_init=learning_rate_init,
+            early_stopping=True,
+            n_iter_no_change=15,
+            random_state=cfg.random_state,
+        )
+        return TransformedTargetRegressor(regressor=mlp, transformer=StandardScaler())
 
 
 # ---------------------------------------------------------------------------

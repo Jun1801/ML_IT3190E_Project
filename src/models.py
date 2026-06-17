@@ -111,13 +111,19 @@ class TargetPCARegressor:
         return np.column_stack(mus), np.column_stack(stds)
 
     def _predict_one_model(self, model: RegressorMixin, x_scaled: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        # Probabilistic estimators (BayesianRidge/ARD/GPR) return a (mu, std) tuple.
+        # Estimators that accept **kwargs (e.g. LightGBM) silently ignore return_std
+        # and return a plain array, so we must check the result type rather than rely
+        # on a TypeError — unpacking that array would raise "too many values to unpack".
         try:
-            mu, std = model.predict(x_scaled, return_std=True)
-            return np.asarray(mu, dtype=float), np.asarray(std, dtype=float)
+            result = model.predict(x_scaled, return_std=True)
         except TypeError:
-            pass
+            result = None
+        if isinstance(result, tuple) and len(result) == 2:
+            mu, std = result
+            return np.asarray(mu, dtype=float), np.asarray(std, dtype=float)
 
-        mu = np.asarray(model.predict(x_scaled), dtype=float)
+        mu = np.asarray(result if result is not None else model.predict(x_scaled), dtype=float)
         std = self._ensemble_std(model, x_scaled, mu.shape[0])
         return mu, std
 
