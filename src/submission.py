@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ariel_ml.models import ModelPrediction, TargetPCARegressor
+from models import ModelPrediction, TargetPCARegressor
 
 
 @dataclass(frozen=True)

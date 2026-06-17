@@ -5,9 +5,10 @@ from pathlib import Path
 import joblib
 import numpy as np
 
-from ariel_ml.config import ModelConfig
-from ariel_ml.metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, gaussian_nll
-from ariel_ml.models import (
+from config import ModelConfig
+from metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, gaussian_nll
+from models import ResidualCorrectedRegressor
+from estimators import (
     MODEL_FAMILIES,
     _resolve_device,
     BayesianRidgePCARegressor,
@@ -15,7 +16,6 @@ from ariel_ml.models import (
     ExtraTreesPCARegressor,
     KernelRidgePCARegressor,
     ModelFactory,
-    ResidualCorrectedRegressor,
     RidgePCARegressor,
 )
 

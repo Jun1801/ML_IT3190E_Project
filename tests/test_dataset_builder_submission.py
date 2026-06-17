@@ -5,17 +5,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ariel_ml.config import FeatureConfig, PreprocessConfig
-from ariel_ml.dataset_builder import ArielDatasetBuilder, align_features_and_targets
-from ariel_ml.io import RawObservation
-from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
-from ariel_ml.preprocessing import CalibrationBundle
-from ariel_ml.submission import (
+from config import FeatureConfig, PreprocessConfig
+from dataset_builder import ArielDatasetBuilder, align_features_and_targets
+from data_io import RawObservation
+from pipeline import ArielPreprocessFeaturePipeline
+from preprocessing import CalibrationBundle
+from submission import (
     build_submission_frame,
     infer_submission_schema,
     save_submission,
 )
-from ariel_ml.models import ModelPrediction
+from models import ModelPrediction
 
 
 class FakeRepository:

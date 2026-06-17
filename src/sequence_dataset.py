@@ -1,6 +1,6 @@
 """Build fixed-shape light-curve sequence tensors for deep sequence models.
 
-Deep models in :mod:`ariel_ml.deep_models` consume ``X`` of shape
+Deep models in :mod:`deep_models` consume ``X`` of shape
 ``[samples, time, channels]``. This module turns raw observations into that
 tensor by reusing the calibration / extraction / detrending pipeline and
 stacking the FGS white-light curve with the (optionally wavelength-binned)
@@ -13,8 +13,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ariel_ml.dataset_builder import ObservationRepository
-from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
+from dataset_builder import ObservationRepository
+from pipeline import ArielPreprocessFeaturePipeline
 
 
 @dataclass(frozen=True)

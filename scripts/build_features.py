@@ -26,10 +26,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    from ariel_ml.config import DatasetConfig, FeatureConfig, PreprocessConfig
-    from ariel_ml.dataset_builder import ArielDatasetBuilder
-    from ariel_ml.io import ArielDataRepository
-    from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
+    from config import DatasetConfig, FeatureConfig, PreprocessConfig
+    from dataset_builder import ArielDatasetBuilder
+    from data_io import ArielDataRepository
+    from pipeline import ArielPreprocessFeaturePipeline
 
     repository = ArielDataRepository(DatasetConfig(data_root=args.data_root))
     pipeline = ArielPreprocessFeaturePipeline(

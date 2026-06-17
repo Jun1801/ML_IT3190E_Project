@@ -7,8 +7,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ariel_ml.config import DatasetConfig
-from ariel_ml.preprocessing import CalibrationBundle
+from config import DatasetConfig
+from preprocessing import CalibrationBundle
 
 
 @dataclass(frozen=True)

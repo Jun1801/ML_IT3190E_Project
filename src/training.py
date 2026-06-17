@@ -8,15 +8,10 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupKFold, KFold, train_test_split
 
-from ariel_ml.config import ModelConfig
-from ariel_ml.metrics import ariel_gll_score, ariel_naive_reference, gaussian_nll, rmse_per_target
-from ariel_ml.models import (
-    ModelFactory,
-    ModelPrediction,
-    ResidualCorrectedRegressor,
-    TargetPCARegressor,
-    WeightedEnsembleRegressor,
-)
+from config import ModelConfig
+from metrics import ariel_gll_score, ariel_naive_reference, gaussian_nll, rmse_per_target
+from models import ModelPrediction, ResidualCorrectedRegressor, TargetPCARegressor, WeightedEnsembleRegressor
+from estimators import ModelFactory
 
 # Metrics where a larger value is a better model (everything else is minimised).
 HIGHER_IS_BETTER_METRICS: frozenset[str] = frozenset({"ariel_gll_score"})
@@ -211,7 +206,8 @@ def train_model_on_indices(
         )
 
     prediction = model.predict(x_arr[val_idx])
-    evaluation = evaluate_prediction(y_arr[val_idx], prediction)
+    naive_ref = ariel_naive_reference(y_arr[train_idx])
+    evaluation = evaluate_prediction(y_arr[val_idx], prediction, naive_reference=naive_ref)
     return TrainResult(
         model=model,
         prediction=prediction,

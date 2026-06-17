@@ -99,9 +99,12 @@ python scripts\train.py --features outputs\features_train.csv --targets data\tra
 
 Available tabular model names include `bayesian_ridge`, `ridge`, `kernel_ridge`, `extra_trees`, `boosting`, `lightgbm`, `xgboost`, and `br_lgbm_residual`. `lightgbm`, `xgboost`, and deep learning baselines require optional dependencies.
 
-## Notebook
+## Notebooks
 
-Use [notebooks/ariel_end_to_end_training.ipynb](notebooks/ariel_end_to_end_training.ipynb) for the full workflow from raw data to `outputs/submission.csv`. Start with `LIMIT = 5`; set `LIMIT = None` only after the smoke run succeeds.
+- [notebooks/prepare_sequence.ipynb](notebooks/prepare_sequence.ipynb) — precompute light-curve sequence tensors (CPU, run once, commit to `precomputed/`)
+- [notebooks/run_deep_learning.ipynb](notebooks/run_deep_learning.ipynb) — train and benchmark deep sequence models (GPU recommended) on the precomputed tensors
+
+For the tabular pipeline (feature extraction → Bayesian Ridge → submission), use the CLI scripts above.
 
 ## Current Limitations
 

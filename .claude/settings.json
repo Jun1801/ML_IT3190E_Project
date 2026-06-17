@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git -C /Users/luuvanson/Desktop/ML_IT3190E_Project remote -v)"
+      "Bash(git -C /Users/luuvanson/Desktop/ML_IT3190E_Project remote -v)",
+      "Bash(rm notebooks/ariel_end_to_end_training.ipynb notebooks/kaggle_01_build_features.ipynb notebooks/kaggle_02_experiments.ipynb notebooks/config_run_guide.md)",
+      "Bash(mv notebooks/kaggle_03_deep_sequence.ipynb notebooks/run_deep_learning.ipynb)",
+      "Bash(mv notebooks/kaggle_03a_prep_sequence.ipynb notebooks/prepare_sequence.ipynb)",
+      "Bash(python3 -c \"import numpy as np; d = np.load\\('/Users/luuvanson/Desktop/ML_IT3190E_Project/precomputed/sequence_train_L300_T128_W64.npz', allow_pickle=True\\); print\\({k: d[k].shape for k in d.files}\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import pandas as pd; df = pd.read_csv\\('/Users/luuvanson/Desktop/ML_IT3190E_Project/benchmark/result.csv'\\); print\\(df.to_string\\(\\)\\)\")",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python3 -m pytest tests/ -v --tb=short)",
+      "Bash(uv run *)"
     ]
   }
 }

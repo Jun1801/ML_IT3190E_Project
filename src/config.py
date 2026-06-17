@@ -65,3 +65,4 @@ class DeepModelConfig:
     random_state: int = 42
     device: str = "auto"
     sigma_floor: float = 1e-6
+    n_components: int | None = None  # target PCA; None = predict all targets directly

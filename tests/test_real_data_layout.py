@@ -3,8 +3,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ariel_ml.config import DatasetConfig
-from ariel_ml.io import ArielDataRepository
+from config import DatasetConfig
+from data_io import ArielDataRepository
 
 
 def test_repository_reads_real_sample_shapes_when_present():

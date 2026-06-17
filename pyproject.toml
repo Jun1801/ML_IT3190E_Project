@@ -1,7 +1,7 @@
 [project]
 name = "ariel-ml"
 version = "0.1.0"
-description = "Preprocessing and feature engineering utilities for Ariel Data Challenge 2025."
+description = "ML pipeline for Ariel Data Challenge 2025."
 requires-python = ">=3.11"
 dependencies = [
     "joblib",
@@ -20,5 +20,6 @@ full = [
 ]
 
 [tool.pytest.ini_options]
+# src/ is added to sys.path so all modules (config, models, training, …) are importable directly.
 pythonpath = ["src"]
 testpaths = ["tests"]

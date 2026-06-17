@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from ariel_ml.metrics import (
+from metrics import (
     ariel_gll_score,
     ariel_naive_reference,
     gaussian_log_likelihood,

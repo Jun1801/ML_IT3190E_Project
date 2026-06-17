@@ -26,6 +26,10 @@ submissions/
 *.pkl
 *.pickle
 
+# Feature CSVs produced by build_features.py (go in outputs/, not the repo root)
+features_train.csv
+features_test.csv
+
 # Notebooks
 .ipynb_checkpoints/
 

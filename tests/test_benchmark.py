@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-from ariel_ml.benchmark import benchmark_models, family_of
-from ariel_ml.config import ModelConfig
+from benchmark import benchmark_models, family_of
+from config import ModelConfig
 
 
 def make_synthetic_regression(n_samples=48, n_features=8, n_targets=12):

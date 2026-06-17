@@ -88,9 +88,9 @@ def main() -> None:
     import joblib
     import pandas as pd
 
-    from ariel_ml.config import ModelConfig
-    from ariel_ml.dataset_builder import align_features_and_targets
-    from ariel_ml.training import cross_validate_model, hyperparameter_search, refit_full_model, train_model
+    from config import ModelConfig
+    from dataset_builder import align_features_and_targets
+    from training import cross_validate_model, hyperparameter_search, refit_full_model, train_model
 
     features = pd.read_csv(args.features)
     targets = pd.read_csv(args.targets)

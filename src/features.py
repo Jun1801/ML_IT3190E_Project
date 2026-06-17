@@ -5,8 +5,8 @@ from typing import Any
 
 import numpy as np
 
-from ariel_ml.config import FeatureConfig
-from ariel_ml.preprocessing import CalibrationMetrics, LightCurves, TransitBounds
+from config import FeatureConfig
+from preprocessing import CalibrationMetrics, LightCurves, TransitBounds
 
 
 class ArielFeatureBuilder:

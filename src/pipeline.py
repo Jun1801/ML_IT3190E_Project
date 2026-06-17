@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ariel_ml.config import FeatureConfig, PreprocessConfig
-from ariel_ml.features import ArielFeatureBuilder
-from ariel_ml.preprocessing import (
+from config import FeatureConfig, PreprocessConfig
+from features import ArielFeatureBuilder
+from preprocessing import (
     CalibrationBundle,
     DetectorCalibrator,
     LightCurveExtractor,

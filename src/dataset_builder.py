@@ -7,8 +7,8 @@ from typing import Protocol
 import numpy as np
 import pandas as pd
 
-from ariel_ml.io import ArielDataRepository, RawObservation
-from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
+from data_io import ArielDataRepository, RawObservation
+from pipeline import ArielPreprocessFeaturePipeline
 
 
 class ObservationRepository(Protocol):

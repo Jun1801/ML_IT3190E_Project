@@ -3,10 +3,10 @@ import warnings
 
 import numpy as np
 
-from ariel_ml.config import FeatureConfig, PreprocessConfig
-from ariel_ml.features import ArielFeatureBuilder
-from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
-from ariel_ml.preprocessing import (
+from config import FeatureConfig, PreprocessConfig
+from features import ArielFeatureBuilder
+from pipeline import ArielPreprocessFeaturePipeline
+from preprocessing import (
     DetectorCalibrator,
     LightCurveExtractor,
     LightCurves,

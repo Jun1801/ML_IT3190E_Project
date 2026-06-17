@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from ariel_ml.config import ModelConfig
-from ariel_ml.models import MODEL_FAMILIES, ModelFactory
-from ariel_ml.training import cross_validate_model
+from config import ModelConfig
+from estimators import MODEL_FAMILIES, ModelFactory
+from training import cross_validate_model
 
 # Reverse lookup: canonical model name -> family.
 _MODEL_TO_FAMILY: dict[str, str] = {

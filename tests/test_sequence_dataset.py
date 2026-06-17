@@ -2,11 +2,11 @@ import unittest
 
 import numpy as np
 
-from ariel_ml.config import PreprocessConfig
-from ariel_ml.io import RawObservation
-from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
-from ariel_ml.preprocessing import CalibrationBundle
-from ariel_ml.sequence_dataset import build_sequence_dataset, observation_sequence
+from config import PreprocessConfig
+from data_io import RawObservation
+from pipeline import ArielPreprocessFeaturePipeline
+from preprocessing import CalibrationBundle
+from sequence_dataset import build_sequence_dataset, observation_sequence
 
 
 class FakeRepository:

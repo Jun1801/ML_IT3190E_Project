@@ -11,28 +11,34 @@ Core approach: **Bayesian Ridge Regression + Physics-based Feature Engineering +
 ## Repository Structure
 
 ```
-src/ariel_ml/              # Main reusable library (13 modules)
+src/                       # All library modules (importable directly via sys.path; no sub-package)
+  config.py                # Configuration dataclasses (PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
   preprocessing.py         # Detector calibration, light curve extraction, transit detection
   features.py              # Physics-based feature engineering
-  models.py                # ML models with PCA wrappers (Ridge, Bayesian Ridge, Kernel Ridge, ExtraTrees, Boosting, LightGBM, XGBoost)
+  pipeline.py              # End-to-end calibration → feature orchestration
+  data_io.py               # Kaggle parquet data repository (ArielDataRepository, RawObservation)
+  dataset_builder.py       # Data loading and feature building from raw observations
+  sequence_dataset.py      # Build [samples, time, channels] light-curve tensors for deep models
+  metrics.py               # Evaluation metrics (RMSE, Gaussian NLL, official Ariel GLL score, sigma calibration)
+  models.py                # TargetPCARegressor base class + ResidualCorrectedRegressor + WeightedEnsembleRegressor
+  estimators.py            # All concrete *PCARegressor subclasses + ModelFactory + MODEL_FAMILIES
   deep_models.py           # Deep learning baselines (CNN1D, LSTM, GRU, TCN, Transformer, Autoencoder)
   training.py              # Training pipeline with CV, hyperparameter search, evaluation
-  dataset_builder.py       # Data loading and feature building from raw observations
-  sequence_dataset.py      # Build [samples, time, channels] light-curve tensors for deep sequence models
-  pipeline.py              # End-to-end orchestration
-  config.py                # Configuration dataclasses (PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
-  metrics.py               # Evaluation metrics (RMSE, Gaussian NLL, official Ariel GLL score, sigma calibration)
+  benchmark.py             # benchmark_models() — BenchmarkResult, BenchmarkRow, family_of()
   submission.py            # Submission generation
-  io.py                    # Kaggle parquet data repository
-  __init__.py              # Public API exports
 scripts/
   build_features.py        # CLI: Extract features from raw data
   train.py                 # CLI: Train model and hyperparameter search
+  benchmark.py             # CLI: Benchmark all model families
   download_sample_data.ps1 # PowerShell helper for data download
 tests/                     # pytest unit tests (uses synthetic data, no Kaggle data required)
-notebooks/                 # End-to-end Jupyter notebooks
+notebooks/
+  prepare_sequence.ipynb   # CPU: precompute light-curve tensors → precomputed/
+  run_deep_learning.ipynb  # GPU: train/benchmark deep sequence models on precomputed tensors
 plans/                     # Research notes and model rationale (Vietnamese)
   ariel_2025_model_plan.md # Detailed pipeline design with formulas and experiments
+benchmark/
+  result.csv               # Committed benchmark results table
 ```
 
 ## Setup & Dependencies
@@ -181,10 +187,10 @@ Output: `dict[str, float]` of ~50–150 features per observation
 - `DeepModelConfig`: Epochs, batch size, learning rate, device
 
 **Core Abstractions:**
-- `ArielPreprocessFeaturePipeline`: Orchestrates calibration → light curves → features
-- `ArielDatasetBuilder`: Loads raw observations, builds feature DataFrames
-- `TargetPCARegressor`: Base class for all tabular models (Ridge, Bayesian Ridge, Kernel Ridge, ExtraTrees, Boosting)
-- `ModelFactory`: Factory for creating model instances by name
+- `ArielPreprocessFeaturePipeline` (`pipeline.py`): Orchestrates calibration → light curves → features
+- `ArielDatasetBuilder` (`dataset_builder.py`): Loads raw observations, builds feature DataFrames
+- `TargetPCARegressor` (`models.py`): Base class for all tabular models — fit/predict/sigma pipeline
+- `ModelFactory` (`estimators.py`): Factory for creating model instances by name; all 19 concrete estimators defined here
 
 **Data Structures:**
 - `CalibrationBundle`: dead, dark, flat, read, linear_corr arrays
@@ -291,8 +297,10 @@ data/
 All preprocessing, feature, and model hyperparameters are configurable via dataclasses in `config.py`:
 
 ```python
-from ariel_ml.config import PreprocessConfig, FeatureConfig, ModelConfig
-from ariel_ml.pipeline import ArielPreprocessFeaturePipeline
+# All modules are importable directly — no package prefix needed.
+# Scripts add src/ to sys.path; pytest uses pythonpath = ["src"].
+from config import PreprocessConfig, FeatureConfig, ModelConfig
+from pipeline import ArielPreprocessFeaturePipeline
 
 # Custom preprocessing
 preprocess = PreprocessConfig(
@@ -334,7 +342,9 @@ pipeline = ArielPreprocessFeaturePipeline(preprocess, features)
 ## Repository Guidelines
 
 From `AGENTS.md`:
-- Keep preprocessing, feature, and model logic in `src/ariel_ml/`
+- Keep all library modules in `src/` (flat, no sub-package); `src/` is on sys.path
+- `models.py` = base classes only (`TargetPCARegressor`, `ResidualCorrectedRegressor`, `WeightedEnsembleRegressor`)
+- `estimators.py` = all 19 concrete `*PCARegressor` subclasses + `ModelFactory` + `MODEL_FAMILIES`
 - Use `tests/` for deterministic unit tests (synthetic data preferred)
 - Use `notebooks/` only for exploratory analysis; import production code from `src/`
 - Keep large artifacts (models, submissions, raw data) in `outputs/` and `data/` (both git-ignored)

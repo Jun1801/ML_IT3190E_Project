@@ -59,9 +59,9 @@ def main() -> None:
     import pandas as pd
     from sklearn.exceptions import ConvergenceWarning
 
-    from ariel_ml.benchmark import benchmark_models
-    from ariel_ml.config import ModelConfig
-    from ariel_ml.dataset_builder import align_features_and_targets
+    from benchmark import benchmark_models
+    from config import ModelConfig
+    from dataset_builder import align_features_and_targets
 
     # The sweep deliberately fits many estimators (GPR, MLP, …) whose
     # convergence warnings would otherwise drown out the comparison table.

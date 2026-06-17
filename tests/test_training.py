@@ -3,9 +3,9 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from ariel_ml.config import ModelConfig
-from ariel_ml.models import ModelPrediction
-from ariel_ml.training import (
+from config import ModelConfig
+from models import ModelPrediction
+from training import (
     build_gll_weighted_ensemble,
     cross_validate_model,
     evaluate_prediction,
@@ -171,7 +171,7 @@ class TrainingTests(unittest.TestCase):
 
     def test_model_params_forwarded_to_ridge(self):
         x, y = synthetic_data()
-        from ariel_ml.models import ModelFactory
+        from estimators import ModelFactory
 
         model = ModelFactory.create("ridge", ModelConfig(n_components=2, model_params={"alpha": 50.0}))
         model.fit(x, y)
@@ -180,7 +180,8 @@ class TrainingTests(unittest.TestCase):
 
     def test_model_params_forwarded_to_residual_eta(self):
         x, y = synthetic_data()
-        from ariel_ml.models import ModelFactory, ResidualCorrectedRegressor
+        from estimators import ModelFactory
+        from models import ResidualCorrectedRegressor
 
         model = ModelFactory.create(
             "br_boosting_residual",

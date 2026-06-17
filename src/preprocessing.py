@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ariel_ml.config import PreprocessConfig
+from config import PreprocessConfig
 
 
 @dataclass(frozen=True)

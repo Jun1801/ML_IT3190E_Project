@@ -3,27 +3,87 @@ import unittest
 
 import numpy as np
 
-from ariel_ml.config import DeepModelConfig
+from config import DeepModelConfig
 
 
 @unittest.skipIf(importlib.util.find_spec("torch") is None, "torch is not installed")
 class DeepModelTests(unittest.TestCase):
-    def test_cnn1d_sequence_regressor_smoke(self):
-        from ariel_ml.deep_models import CNN1DRegressor
+    def _make_data(self, n=12, n_time=10, n_channels=3, n_targets=8):
+        rng = np.random.default_rng(42)
+        x = rng.normal(size=(n, n_time, n_channels)).astype(np.float32)
+        y = rng.normal(size=(n, n_targets)).astype(np.float32)
+        return x, y
 
-        rng = np.random.default_rng(12)
-        x = rng.normal(size=(8, 12, 3)).astype(np.float32)
-        y = rng.normal(size=(8, 5)).astype(np.float32)
+    def test_cnn1d_basic_shapes(self):
+        from deep_models import CNN1DRegressor
+
+        x, y = self._make_data()
+        model = CNN1DRegressor(DeepModelConfig(epochs=1, batch_size=4, hidden_size=16, device="cpu"))
+        model.fit(x, y)
+        pred = model.predict(x[:2])
+
+        self.assertEqual(pred.mu.shape, (2, y.shape[1]))
+        self.assertEqual(pred.sigma.shape, (2, y.shape[1]))
+        self.assertTrue(np.all(pred.sigma > 0))
+
+    def test_fit_with_pca_reduces_internal_targets(self):
+        from deep_models import CNN1DRegressor
+
+        x, y = self._make_data(n=16, n_targets=10)
+        n_comp = 4
         model = CNN1DRegressor(
-            DeepModelConfig(epochs=1, batch_size=4, hidden_size=16, device="cpu")
+            DeepModelConfig(epochs=1, batch_size=4, hidden_size=16, device="cpu", n_components=n_comp)
+        )
+        model.fit(x, y)
+
+        # PCA fitted; internal targets dimension is n_comp
+        self.assertIsNotNone(model.pca_)
+        self.assertEqual(model.n_targets_, n_comp)
+        # Output is still inverse-transformed back to full target space
+        pred = model.predict(x[:3])
+        self.assertEqual(pred.mu.shape, (3, y.shape[1]))
+        self.assertEqual(pred.sigma.shape, (3, y.shape[1]))
+        self.assertTrue(np.all(pred.sigma > 0))
+
+    def test_fit_with_val_calibrates_sigma(self):
+        from deep_models import GRURegressor
+
+        x, y = self._make_data(n=16)
+        x_tr, x_va = x[:12], x[12:]
+        y_tr, y_va = y[:12], y[12:]
+
+        model_no_cal = GRURegressor(
+            DeepModelConfig(epochs=2, batch_size=4, hidden_size=16, device="cpu")
+        )
+        model_no_cal.fit(x_tr, y_tr)
+
+        model_cal = GRURegressor(
+            DeepModelConfig(epochs=2, batch_size=4, hidden_size=16, device="cpu")
+        )
+        model_cal.fit(x_tr, y_tr, x_val=x_va, y_val=y_va)
+
+        # With calibration the calibrator scale should differ from default 1.0
+        self.assertNotEqual(model_cal.sigma_calibrator.scale_, 1.0)
+
+    def test_all_architectures_smoke(self):
+        from deep_models import (
+            AutoencoderMLPRegressor,
+            CNN1DRegressor,
+            GRURegressor,
+            LSTMRegressor,
+            TCNRegressor,
+            TransformerSequenceRegressor,
         )
 
-        model.fit(x, y)
-        prediction = model.predict(x[:2])
-
-        self.assertEqual(prediction.mu.shape, (2, 5))
-        self.assertEqual(prediction.sigma.shape, (2, 5))
-        self.assertTrue(np.all(prediction.sigma > 0))
+        x, y = self._make_data(n=10, n_time=12, n_channels=3, n_targets=6)
+        for cls in [CNN1DRegressor, TCNRegressor, LSTMRegressor, GRURegressor,
+                    TransformerSequenceRegressor, AutoencoderMLPRegressor]:
+            with self.subTest(cls=cls.__name__):
+                model = cls(DeepModelConfig(epochs=1, batch_size=4, hidden_size=16, device="cpu"))
+                model.fit(x, y)
+                pred = model.predict(x[:2])
+                self.assertEqual(pred.mu.shape, (2, y.shape[1]))
+                self.assertTrue(np.all(pred.sigma > 0))
 
 
 if __name__ == "__main__":
