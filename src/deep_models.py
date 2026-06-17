@@ -16,6 +16,8 @@ class TorchSequenceRegressor:
     - Gaussian NLL training on PCA components (or raw targets if no PCA).
     - Post-hoc ``SigmaCalibrator`` on held-out validation data (pass ``x_val``/``y_val``
       to ``fit()``), matching what tabular models do.
+    - Early stopping on validation NLL when ``patience > 0`` and val data is provided;
+      best weights are restored after stopping.
     """
 
     def __init__(self, architecture: str, config: DeepModelConfig | None = None) -> None:
@@ -67,8 +69,26 @@ class TorchSequenceRegressor:
             dataset, batch_size=self.config.batch_size, shuffle=True
         )
         optimizer = self.torch.optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
-        self.model.train()
+
+        # Pre-compute validation tensors in PCA space for early stopping.
+        x_val_t = y_val_t = None
+        use_early_stop = x_val is not None and y_val is not None and self.config.patience > 0
+        if use_early_stop:
+            y_val_arr = np.asarray(y_val, dtype=np.float32)
+            y_val_pca = (
+                self.pca_.transform(y_val_arr).astype(np.float32)
+                if self.pca_ is not None
+                else y_val_arr
+            )
+            x_val_t = self.torch.as_tensor(np.asarray(x_val, dtype=np.float32)).to(self.device)
+            y_val_t = self.torch.as_tensor(y_val_pca).to(self.device)
+
+        best_val_loss = float("inf")
+        patience_counter = 0
+        best_state: dict | None = None
+
         for _ in range(self.config.epochs):
+            self.model.train()
             for batch_x, batch_y in loader:
                 batch_x = batch_x.to(self.device)
                 batch_y = batch_y.to(self.device)
@@ -78,6 +98,27 @@ class TorchSequenceRegressor:
                 loss = (0.5 * ((batch_y - mu) / sigma) ** 2 + self.torch.log(sigma)).mean()
                 loss.backward()
                 optimizer.step()
+
+            if use_early_stop:
+                self.model.eval()
+                with self.torch.inference_mode():
+                    mu_v, log_sigma_v = self.model(x_val_t)
+                    sigma_v = self.torch.nn.functional.softplus(log_sigma_v) + self.config.sigma_floor
+                    val_loss = (
+                        0.5 * ((y_val_t - mu_v) / sigma_v) ** 2 + self.torch.log(sigma_v)
+                    ).mean().item()
+                if val_loss < best_val_loss - 1e-6:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    best_state = {k: v.clone() for k, v in self.model.state_dict().items()}
+                else:
+                    patience_counter += 1
+                    if patience_counter >= self.config.patience:
+                        break
+
+        # Restore weights from the epoch with lowest validation loss.
+        if best_state is not None:
+            self.model.load_state_dict(best_state)
 
         # Post-hoc sigma calibration in full target space — mirrors tabular SigmaCalibrator.
         if x_val is not None and y_val is not None:
@@ -149,7 +190,7 @@ class TorchSequenceRegressor:
         if self.architecture == "transformer":
             return _build_transformer(nn, n_channels, n_targets, config)
         if self.architecture == "autoencoder_mlp":
-            return _build_autoencoder_mlp(nn, n_time, n_channels, n_targets, config)
+            return _build_autoencoder_mlp(nn, n_channels, n_targets, config)
         raise ValueError(f"Unknown deep architecture: {self.architecture}")
 
 
@@ -194,15 +235,21 @@ class AutoencoderMLPRegressor(TorchSequenceRegressor):
 # ---------------------------------------------------------------------------
 
 def _build_cnn1d(nn, n_channels: int, n_targets: int, config: DeepModelConfig):
+    """3-layer conv encoder with BatchNorm for stable training on larger datasets."""
     hidden = config.hidden_size
 
     class _Model(nn.Module):
         def __init__(self):
             super().__init__()
             self.net = nn.Sequential(
-                nn.Conv1d(n_channels, hidden // 2, kernel_size=5, padding=2),
+                nn.Conv1d(n_channels, hidden // 2, kernel_size=7, padding=3),
+                nn.BatchNorm1d(hidden // 2),
                 nn.ReLU(),
                 nn.Conv1d(hidden // 2, hidden, kernel_size=5, padding=2),
+                nn.BatchNorm1d(hidden),
+                nn.ReLU(),
+                nn.Conv1d(hidden, hidden, kernel_size=3, padding=1),
+                nn.BatchNorm1d(hidden),
                 nn.ReLU(),
                 nn.AdaptiveAvgPool1d(1),
                 nn.Flatten(),
@@ -217,6 +264,7 @@ def _build_cnn1d(nn, n_channels: int, n_targets: int, config: DeepModelConfig):
 
 
 def _build_tcn(nn, n_channels: int, n_targets: int, config: DeepModelConfig):
+    """4-layer dilated TCN (dilation 1→2→4→8) with BatchNorm."""
     hidden = config.hidden_size
 
     class _Model(nn.Module):
@@ -224,10 +272,16 @@ def _build_tcn(nn, n_channels: int, n_targets: int, config: DeepModelConfig):
             super().__init__()
             self.net = nn.Sequential(
                 nn.Conv1d(n_channels, hidden // 2, kernel_size=3, padding=1, dilation=1),
+                nn.BatchNorm1d(hidden // 2),
                 nn.ReLU(),
                 nn.Conv1d(hidden // 2, hidden, kernel_size=3, padding=2, dilation=2),
+                nn.BatchNorm1d(hidden),
                 nn.ReLU(),
                 nn.Conv1d(hidden, hidden, kernel_size=3, padding=4, dilation=4),
+                nn.BatchNorm1d(hidden),
+                nn.ReLU(),
+                nn.Conv1d(hidden, hidden, kernel_size=3, padding=8, dilation=8),
+                nn.BatchNorm1d(hidden),
                 nn.ReLU(),
                 nn.AdaptiveAvgPool1d(1),
                 nn.Flatten(),
@@ -242,13 +296,16 @@ def _build_tcn(nn, n_channels: int, n_targets: int, config: DeepModelConfig):
 
 
 def _build_rnn(nn, n_channels: int, n_targets: int, config: DeepModelConfig, *, cell: str):
+    """2-layer stacked LSTM or GRU with inter-layer dropout."""
     hidden = config.hidden_size
     rnn_cls = nn.LSTM if cell == "lstm" else nn.GRU
 
     class _Model(nn.Module):
         def __init__(self):
             super().__init__()
-            self.rnn = rnn_cls(n_channels, hidden, batch_first=True)
+            self.rnn = rnn_cls(
+                n_channels, hidden, num_layers=2, batch_first=True, dropout=config.dropout
+            )
             self.dropout = nn.Dropout(config.dropout)
             self.head = nn.Linear(hidden, n_targets * 2)
 
@@ -260,6 +317,7 @@ def _build_rnn(nn, n_channels: int, n_targets: int, config: DeepModelConfig, *, 
 
 
 def _build_transformer(nn, n_channels: int, n_targets: int, config: DeepModelConfig):
+    """3-layer Pre-LN Transformer encoder with wider FFN (4× hidden)."""
     hidden = config.hidden_size
 
     class _Model(nn.Module):
@@ -269,11 +327,12 @@ def _build_transformer(nn, n_channels: int, n_targets: int, config: DeepModelCon
             encoder_layer = nn.TransformerEncoderLayer(
                 d_model=hidden,
                 nhead=4,
-                dim_feedforward=hidden * 2,
+                dim_feedforward=hidden * 4,
                 dropout=config.dropout,
                 batch_first=True,
+                norm_first=True,  # Pre-LN: more stable gradient flow
             )
-            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=2)
+            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=3)
             self.head = nn.Linear(hidden, n_targets * 2)
 
         def forward(self, x):
@@ -282,24 +341,38 @@ def _build_transformer(nn, n_channels: int, n_targets: int, config: DeepModelCon
     return _Model()
 
 
-def _build_autoencoder_mlp(nn, n_time: int, n_channels: int, n_targets: int, config: DeepModelConfig):
+def _build_autoencoder_mlp(nn, n_channels: int, n_targets: int, config: DeepModelConfig):
+    """Conv encoder compresses the time axis before MLP regression head.
+
+    Replaces the original flat-input design (n_time * n_channels features) which
+    produced extreme overfitting on small datasets.  Two conv+BN layers reduce
+    the sequence to ``latent_time=16`` fixed-length slots before flattening, so
+    the MLP head receives ``hidden * 16`` features regardless of input length.
+    """
     hidden = config.hidden_size
-    flat = n_time * n_channels
+    latent_time = 16
 
     class _Model(nn.Module):
         def __init__(self):
             super().__init__()
-            self.net = nn.Sequential(
-                nn.Flatten(),
-                nn.Linear(flat, hidden * 2),
+            self.encoder = nn.Sequential(
+                nn.Conv1d(n_channels, hidden, kernel_size=5, padding=2),
+                nn.BatchNorm1d(hidden),
                 nn.ReLU(),
+                nn.Conv1d(hidden, hidden, kernel_size=3, padding=1),
+                nn.BatchNorm1d(hidden),
+                nn.ReLU(),
+                nn.AdaptiveAvgPool1d(latent_time),
+                nn.Flatten(),
+            )
+            self.head = nn.Sequential(
                 nn.Dropout(config.dropout),
-                nn.Linear(hidden * 2, hidden),
+                nn.Linear(hidden * latent_time, hidden),
                 nn.ReLU(),
                 nn.Linear(hidden, n_targets * 2),
             )
 
         def forward(self, x):
-            return self.net(x).chunk(2, dim=-1)
+            return self.head(self.encoder(x.transpose(1, 2))).chunk(2, dim=-1)
 
     return _Model()

@@ -66,3 +66,4 @@ class DeepModelConfig:
     device: str = "auto"
     sigma_floor: float = 1e-6
     n_components: int | None = None  # target PCA; None = predict all targets directly
+    patience: int = 20  # early stopping patience (epochs without val improvement); 0 = disabled

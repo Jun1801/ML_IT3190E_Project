@@ -10,7 +10,8 @@
       "Bash(python3 -c \"import pandas as pd; df = pd.read_csv\\('/Users/luuvanson/Desktop/ML_IT3190E_Project/benchmark/result.csv'\\); print\\(df.to_string\\(\\)\\)\")",
       "Bash(python -m pytest tests/ -v --tb=short)",
       "Bash(python3 -m pytest tests/ -v --tb=short)",
-      "Bash(uv run *)"
+      "Bash(uv run *)",
+      "Bash(python -m pytest tests/test_deep_models.py -v)"
     ]
   }
 }
