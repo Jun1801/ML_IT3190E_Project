@@ -202,8 +202,8 @@ class RandomForestPCARegressor(TargetPCARegressor):
         self,
         config: ModelConfig | None = None,
         *,
-        n_estimators: int = 300,
-        min_samples_leaf: int = 2,
+        n_estimators: int = 100,
+        min_samples_leaf: int = 4,
         n_jobs: int | None = -1,
     ) -> None:
         cfg = config or ModelConfig()
