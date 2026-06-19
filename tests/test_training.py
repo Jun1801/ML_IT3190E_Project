@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,7 @@ from training import (
     hyperparameter_search,
     make_train_validation_split,
     refit_full_model,
+    search_n_components,
     targets_to_matrix,
     train_model,
 )
@@ -133,6 +135,39 @@ class TrainingTests(unittest.TestCase):
         )
         nll = [c.mean_metrics["gaussian_nll"] for c in result.candidates]
         self.assertAlmostEqual(result.best_candidate.mean_metrics["gaussian_nll"], min(nll))
+
+    def test_search_n_components_matches_full_cv(self):
+        # The fast "fit once at k_max, truncate" sweep must equal running full CV at each k.
+        # Use noisy targets + groups so residual_rmse is non-trivial — this exercises the
+        # exact calibrator fit order that TargetPCARegressor.fit uses.
+        rng = np.random.default_rng(3)
+        n, d, m = 80, 6, 24
+        xm = rng.normal(size=(n, d))
+        wl = np.linspace(0, 1, m)
+        y = 0.01 + (xm[:, :2] @ np.vstack([np.sin(2 * np.pi * wl), np.cos(2 * np.pi * wl)])) * 0.003
+        y = y + rng.normal(size=(n, m)) * 1e-3  # meaningful noise -> non-zero residual_rmse
+        groups = np.repeat(np.arange(n // 2), 2)
+        grid = [4, 8, 12]
+        base = ModelConfig(calibrate_sigma=True, sigma_per_target=True, random_state=42)
+
+        fast = search_n_components(
+            xm, y, model_name="bayesian_ridge", n_components_grid=grid,
+            base_config=base, n_splits=3, groups=groups, sigma_cal_fraction=0.2,
+            selection_metric="ariel_gll_score",
+        )
+        fast_by_k = {c.model_config.n_components: c.mean_metrics for c in fast.candidates}
+
+        for k in grid:
+            cv = cross_validate_model(
+                xm, y, model_name="bayesian_ridge",
+                model_config=replace(base, n_components=k), n_splits=3, groups=groups, sigma_cal_fraction=0.2,
+            )
+            self.assertAlmostEqual(
+                fast_by_k[k]["ariel_gll_score"], cv.mean_metrics["ariel_gll_score"], places=9, msg=f"k={k}"
+            )
+            self.assertAlmostEqual(
+                fast_by_k[k]["rmse_mean"], cv.mean_metrics["rmse_mean"], places=9, msg=f"k={k}"
+            )
 
     def test_gll_weighted_ensemble_weights_and_predicts(self):
         x, y = synthetic_data(n_samples=48)

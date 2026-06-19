@@ -272,6 +272,103 @@ def hyperparameter_search(
     return HyperparameterSearchResult(candidates=candidates, best_candidate=best)
 
 
+def search_n_components(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    model_name: str = "bayesian_ridge",
+    n_components_grid: Iterable[int] = (16, 24, 32),
+    base_config: ModelConfig | None = None,
+    n_splits: int = 5,
+    groups: np.ndarray | None = None,
+    random_state: int = 42,
+    selection_metric: str = "ariel_gll_score",
+    maximize: bool | None = None,
+    sigma_cal_fraction: float = 0.0,
+) -> HyperparameterSearchResult:
+    """Fast, EXACT n_components sweep for a single PCA-based model.
+
+    PCA axes are nested and each per-component regressor is fitted independently,
+    so a model fitted at ``max(grid)`` already contains every smaller-k model as a
+    prefix. We fit once per fold at the maximum k, then score each k by truncating
+    the component columns and re-deriving only the cheap residual/sigma calibration.
+    Results match running full CV at each k (see tests), at a fraction of the cost.
+
+    Only works for ``TargetPCARegressor`` models (not residual/ensemble wrappers).
+    """
+    grid = sorted({int(k) for k in n_components_grid})
+    if not grid:
+        raise ValueError("n_components_grid must be non-empty.")
+    base = base_config or ModelConfig(random_state=random_state)
+    if maximize is None:
+        maximize = selection_metric in HIGHER_IS_BETTER_METRICS
+    k_max = grid[-1]
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    splitter = make_cv_splitter(n_splits=n_splits, groups=groups, random_state=random_state)
+    split_groups = None if groups is None else np.asarray(groups)
+
+    per_k_rows: dict[int, list[dict[str, float]]] = {k: [] for k in grid}
+    for train_idx, val_idx in splitter.split(x_arr, y_arr, groups=split_groups):
+        if sigma_cal_fraction > 0.0 and len(train_idx) > 4:
+            n_cal = max(1, int(len(train_idx) * sigma_cal_fraction))
+            shuffled = np.random.default_rng(random_state).permutation(len(train_idx))
+            cal_idx = train_idx[shuffled[:n_cal]]
+            model_train_idx = train_idx[shuffled[n_cal:]]
+        else:
+            cal_idx = val_idx
+            model_train_idx = train_idx
+
+        model = ModelFactory.create(model_name, replace(base, n_components=k_max, random_state=random_state))
+        if not hasattr(model, "predict_pca_space"):
+            raise TypeError(f"search_n_components requires a TargetPCARegressor model, got {model_name}.")
+        model.fit(x_arr[model_train_idx], y_arr[model_train_idx])  # fit once at k_max (no calibration)
+
+        zc_mu, zc_std, xc = model.predict_pca_space(x_arr[cal_idx])
+        zv_mu, zv_std, xv = model.predict_pca_space(x_arr[val_idx])
+        components, mean_ = model.pca.components_, model.pca.mean_
+        naive_ref = ariel_naive_reference(y_arr[train_idx])
+
+        for k in grid:
+            comp_k = components[:k]
+            mu_cal = zc_mu[:, :k] @ comp_k + mean_
+            prop_cal = np.sqrt(np.maximum((zc_std[:, :k] ** 2) @ (comp_k ** 2), 0.0))
+            residual_rmse = rmse_per_target(y_arr[cal_idx], mu_cal, floor=base.residual_floor)
+
+            # Match TargetPCARegressor.fit exactly: the calibrator is fitted on the
+            # uncalibrated sigma BEFORE residual_rmse is folded in (at that point
+            # residual_rmse_ is still None -> the residual floor is used).
+            sigma_cal_fit = np.maximum(np.sqrt(prop_cal ** 2 + base.residual_floor ** 2), base.sigma_floor)
+            calibrator = model._build_calibrator()
+            if base.calibrate_sigma:
+                calibrator.fit(y_arr[cal_idx], mu_cal, sigma_cal_fit, xc)
+
+            mu_val = zv_mu[:, :k] @ comp_k + mean_
+            prop_val = np.sqrt(np.maximum((zv_std[:, :k] ** 2) @ (comp_k ** 2), 0.0))
+            sigma_val = np.maximum(np.sqrt(prop_val ** 2 + residual_rmse ** 2), base.sigma_floor)
+            if base.calibrate_sigma:
+                sigma_val = calibrator.transform(sigma_val, xv)
+            evaluation = evaluate_prediction(
+                y_arr[val_idx], ModelPrediction(mu=mu_val, sigma=sigma_val), naive_reference=naive_ref
+            )
+            per_k_rows[k].append(evaluation.as_dict())
+
+    candidates: list[SearchCandidateResult] = []
+    for k in grid:
+        rows = per_k_rows[k]
+        mean_metrics = {key: float(np.mean([r[key] for r in rows])) for key in rows[0].keys()}
+        candidates.append(
+            SearchCandidateResult(
+                model_name=model_name,
+                model_config=replace(base, n_components=k, random_state=random_state),
+                mean_metrics=mean_metrics,
+            )
+        )
+    chooser = max if maximize else min
+    best = chooser(candidates, key=lambda item: item.mean_metrics[selection_metric])
+    return HyperparameterSearchResult(candidates=candidates, best_candidate=best)
+
+
 def cross_validate_model(
     x: np.ndarray,
     y: np.ndarray,

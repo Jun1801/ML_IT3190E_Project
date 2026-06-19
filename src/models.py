@@ -30,13 +30,16 @@ class TargetPCARegressor:
         self.pca: PCA | None = None
         self.models: list[RegressorMixin] = []
         self.residual_rmse_: np.ndarray | None = None
+        self.sigma_calibrator = self._build_calibrator()
+
+    def _build_calibrator(self):
+        """Create a fresh sigma calibrator matching the current config."""
         if self.config.sigma_feature_conditioned:
-            self.sigma_calibrator = FeatureConditionedSigmaCalibrator(sigma_floor=self.config.sigma_floor)
-        else:
-            self.sigma_calibrator = SigmaCalibrator(
-                sigma_floor=self.config.sigma_floor,
-                per_target=self.config.sigma_per_target,
-            )
+            return FeatureConditionedSigmaCalibrator(sigma_floor=self.config.sigma_floor)
+        return SigmaCalibrator(
+            sigma_floor=self.config.sigma_floor,
+            per_target=self.config.sigma_per_target,
+        )
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -100,6 +103,18 @@ class TargetPCARegressor:
         sigma = np.sqrt(propagated_sigma**2 + residual_rmse[np.newaxis, :] ** 2)
         sigma = np.maximum(sigma, self.config.sigma_floor)
         return ModelPrediction(mu=mu, sigma=sigma)
+
+    def predict_pca_space(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return (z_mu, z_std, x_scaled) over all fitted PCA components.
+
+        Lets a caller reconstruct predictions for any k <= n_components by
+        truncating the component columns (the PCA axes are nested), avoiding a
+        full refit per n_components during search.
+        """
+        self._require_fitted()
+        x_scaled = self._transform_x(np.asarray(x, dtype=float))
+        z_mu, z_std = self._predict_pca_space(x_scaled)
+        return z_mu, z_std, x_scaled
 
     def _predict_pca_space(self, x_scaled: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         mus: list[np.ndarray] = []
