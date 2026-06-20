@@ -33,6 +33,7 @@ class BenchmarkTests(unittest.TestCase):
     def test_family_of_resolves_known_and_unknown_names(self):
         self.assertEqual(family_of("svr"), "kernel_svm")
         self.assertEqual(family_of("Random-Forest"), "trees")
+        self.assertEqual(family_of("ms_bayesian_ridge"), "mean_shift")
         self.assertEqual(family_of("not_a_model"), "other")
 
     def test_benchmark_runs_each_model_on_same_folds(self):

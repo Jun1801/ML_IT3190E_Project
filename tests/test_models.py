@@ -7,7 +7,7 @@ import numpy as np
 
 from config import ModelConfig
 from metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, gaussian_nll
-from models import ResidualCorrectedRegressor, TargetPCARegressor
+from models import MeanShiftedRegressor, ResidualCorrectedRegressor, TargetPCARegressor
 from estimators import (
     MODEL_FAMILIES,
     _resolve_device,
@@ -239,6 +239,39 @@ class ModelTests(unittest.TestCase):
 
         self.assertEqual(prediction.mu.shape, y[28:].shape)
         self.assertTrue(np.all(prediction.sigma > 0))
+
+    def test_mean_shifted_factory_shapes_and_positive_sigma(self):
+        x, y = make_synthetic_regression(n_samples=40, n_targets=12)
+        model = ModelFactory.create("ms_bayesian_ridge", ModelConfig(n_components=3, calibrate_sigma=False))
+        self.assertIsInstance(model, MeanShiftedRegressor)
+        model.fit(x[:32], y[:32], x_val=x[32:], y_val=y[32:])
+        pred = model.predict(x[32:])
+        self.assertEqual(pred.mu.shape, (8, y.shape[1]))
+        self.assertEqual(pred.sigma.shape, (8, y.shape[1]))
+        self.assertTrue(np.all(pred.sigma > 0))
+
+    def test_mean_shifted_decomposition_identity(self):
+        # μ must equal depth μ (broadcast) + shape μ exactly.
+        x, y = make_synthetic_regression(n_samples=36, n_targets=10)
+        cfg = ModelConfig(n_components=3, calibrate_sigma=False)
+        model = MeanShiftedRegressor(BayesianRidgePCARegressor(cfg), BayesianRidgePCARegressor(cfg))
+        model.fit(x[:28], y[:28])
+        combined = model.predict(x[28:])
+        d = model.depth_model.predict(x[28:]).mu
+        s = model.shape_model.predict(x[28:]).mu
+        np.testing.assert_allclose(combined.mu, d + s, rtol=1e-10)
+        # depth target is the per-row mean -> depth μ ~ scale of y mean, shape μ ~ 0-centred
+        self.assertEqual(d.shape, (8, 1))
+
+    def test_mean_shifted_pickle_roundtrip(self):
+        x, y = make_synthetic_regression(n_samples=30, n_targets=8)
+        model = ModelFactory.create("ms_ridge", ModelConfig(n_components=2, calibrate_sigma=False))
+        model.fit(x, y)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "ms.joblib"
+            joblib.dump({"model": model}, p)
+            loaded = joblib.load(p)["model"]
+        self.assertEqual(loaded.predict(x[:3]).mu.shape, (3, y.shape[1]))
 
     def test_fitted_model_can_be_saved_with_joblib(self):
         x, y = make_synthetic_regression(n_samples=24, n_targets=8)

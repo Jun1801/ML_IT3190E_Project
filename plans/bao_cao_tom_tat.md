@@ -175,6 +175,14 @@ Kèm **reliability diagram** (coverage thực nghiệm vs danh nghĩa) và biể
 
 ---
 
+## 4b. Thảo luận — phát hiện từ EDA & một ablation âm
+
+**Target gần rank-1 (phát hiện EDA quan trọng).** Phân tích PCA cho thấy **component 1 chiếm ~99.8% variance**: mỗi phổ ≈ một mức nền (độ sâu transit = kích thước planet) gần như phẳng theo bước sóng, còn đặc trưng khí quyển (mục tiêu khoa học) chỉ là modulation ~0.2% chìm trong nhiễu. Điều này giải thích vì sao RMSE gần như không đổi theo `n_components` và vì sao nhiều model có GLL ≈ 0 (đoán đúng mức nền ≈ ngang baseline naive; phần "ăn điểm" là deviation phổ rất khó). Ngoài ra, **kênh AIRS biên (wl-0) nhiễu vượt trội** so với các kênh khác — bằng chứng trực tiếp cho nhu cầu calibration σ **theo từng bước sóng** (PHC).
+
+**Ablation âm — tách mean-depth + shape (`MeanShiftedRegressor`).** Từ phát hiện rank-1, ta thử mô hình hóa tách biệt: một model cho mức nền $d_i=\text{mean}_\lambda y_{i\lambda}$ và một model cho phần dư $r_{i\lambda}=y_{i\lambda}-d_i$ (tín hiệu khí quyển), rồi ghép $\hat y = \hat d + \hat r$. Benchmark trên nhiều cấu hình cho thấy **không cải thiện**: linear (`bayesian_ridge`) chỉ +0.001…+0.009 GLL (không đáng kể), còn tree (`extra_trees`) **tệ hơn** (−0.03…−0.04). Nguyên nhân: **Target-PCA đã ngầm tách rank-1** — component 1 chính là mức nền, các component sau là shape — nên tách tay là dư thừa; với tree, chia thành hai model yếu hơn còn làm giảm chất lượng. Phương pháp được giữ trong code (`MeanShiftedRegressor`, đã test đầy đủ) như một ablation, **không** dùng trong pipeline chính.
+
+---
+
 ## 5. Kết luận cho báo cáo
 
 - **Bài toán:** hồi quy đa mục tiêu có bất định, chấm bằng GLL chuẩn hóa.

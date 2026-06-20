@@ -169,6 +169,17 @@ class TrainingTests(unittest.TestCase):
                 fast_by_k[k]["rmse_mean"], cv.mean_metrics["rmse_mean"], places=9, msg=f"k={k}"
             )
 
+    def test_mean_shift_runs_in_cross_validate(self):
+        x, y = synthetic_data(n_samples=48)
+        cv = cross_validate_model(
+            x, y, model_name="ms_bayesian_ridge",
+            model_config=ModelConfig(n_components=4, sigma_per_target=True),
+            n_splits=3, groups=np.repeat(np.arange(24), 2), sigma_cal_fraction=0.2,
+        )
+        m = cv.mean_metrics
+        self.assertIn("ariel_gll_score", m)
+        self.assertTrue(np.isfinite(m["ariel_gll_score"]))
+
     def test_gll_weighted_ensemble_weights_and_predicts(self):
         x, y = synthetic_data(n_samples=48)
         result = build_gll_weighted_ensemble(
