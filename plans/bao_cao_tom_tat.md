@@ -205,9 +205,32 @@ Kèm **reliability diagram** (coverage thực nghiệm vs danh nghĩa) và biể
 - **GLL = 0** (ridge, lasso, elastic_net, mlp, svr, kernel_ridge, knn, **lightgbm, xgboost, hist_gb**): point-estimator **không có σ gốc** → σ fallback quá rộng (0.28–0.71), coverage = 1.0 → tụt về mức naive.
 - Minh chứng đắt: **xgboost RMSE tốt nhất (0.0024) nhưng GLL = 0**. *Mean tốt ≠ điểm GLL cao* — đúng luận điểm PHC: **chất lượng uncertainty mới quyết định**.
 
-> Deep CNN/Transformer dẫn đầu, nhưng nhóm tree + Bayesian (có calibration) bám sát; point-estimator cần một tầng σ thực (PHC/conformal) để cạnh tranh.
+### 4c.1. So sánh ĐỒNG BỘ (apples-to-apples) — bảng merged ở trên dễ gây hiểu nhầm
 
-**Lưu ý đồng bộ metric.** Bảng merged ở trên gộp 2 protocol khác nhau (ML: 3-fold CV + PHC; Deep: single-split, σ thô) nên chỉ **so sánh tương đối**. Để **apples-to-apples**, `run_deep_learning.ipynb` §6 đánh giá ML và Deep trên **cùng tập eval** (nửa `va`), **cùng naive_ref (train)**, và **cùng PHC per-wavelength** (fit calibrator trên nửa `va` còn lại, leak-free) → `sync_ml_vs_deep.csv`. Sau khi áp PHC cho cả hai, so sánh mới hoàn toàn công bằng.
+Bảng merged trộn 2 protocol (ML: 3-fold CV + PHC; Deep: single-split, σ thô) nên chỉ tương đối. Khi đánh giá **cùng tập eval + cùng PHC per-wavelength + cùng naive_ref** (`sync_ml_vs_deep.csv`):
+
+| Model | Loại | Ariel GLL (sync) | cov 1σ |
+|---|---|---|---|
+| **extra_trees** | ml+PHC | **0.287** | 0.77 |
+| **random_forest** | ml+PHC | **0.273** | 0.82 |
+| cnn1d | deep+PHC | 0.221 | 0.74 |
+| transformer | deep+PHC | 0.220 | 0.68 |
+| tcn | deep+PHC | 0.167 | 0.74 |
+| gru | deep+PHC | 0.119 | 0.81 |
+| bayesian_ridge | ml+PHC | 0.074 | 0.67 |
+| lstm / autoencoder_mlp | deep+PHC | ~0 | |
+
+→ **Khi so sánh công bằng, tree ensembles THẮNG (0.29/0.27), deep CNN/Transformer bám sát (0.22).** Hiện tượng "deep dẫn đầu" ở bảng merged là **artifact của protocol** (deep single-split không PHC vs ML CV). **Bài học phương pháp luận: phải đồng bộ protocol mới so sánh được.**
+
+### 4c.2. Findings chính (đưa vào report)
+
+1. **Tree ensembles là model tốt nhất** trên GLL chính thức khi so công bằng (extra_trees 0.287, random_forest 0.273); deep cạnh tranh nhưng sau (~0.22). CV xác nhận: extra_trees 0.215 ± 0.025 vs bayesian_ridge 0.093 ± 0.026 (khoảng cách >> std → có ý nghĩa).
+2. **Uncertainty quyết định GLL — phân đôi rõ rệt.** Model có σ tự nhiên chặt (trees ~0.003, Bayesian/ngboost/ard ~0.005) → GLL 0.09–0.29; point-estimator (ridge/lasso/elastic_net/mlp/svr/knn/lightgbm/xgboost/hist_gb) → **GLL = 0**, σ 0.28–0.71, coverage = 1.0. **xgboost RMSE tốt nhất (0.0024) nhưng GLL = 0.**
+3. **PHC cho lợi ích biên/âm (negative result trung thực).** Ablation calibration (bayesian_ridge): **none 0.127 > scalar 0.093 ≈ per_wavelength 0.093 > feature_conditioned 0.063**. Reliability diagram cho thấy σ của bayesian_ridge **quá rộng (under-confident, over-cover)** → recalibrate càng nới rộng → GLL giảm; `feature_conditioned` overfit. ⇒ **σ nội tại** (Bayesian var + residual-RMSE, hoặc ensemble variance của tree) **đã đủ tốt**; recalibrate tường minh không giúp trên dữ liệu này.
+4. **Phụ thuộc dữ liệu mạnh** (learning curve, bayesian_ridge): GLL ≈ 0 khi ≤ 400 planet, **nhảy lên 0.105 tại 800** và 0.093 tại 1100; RMSE giảm đều theo #planet. ⇒ cần ≥ ~800 planet mới vượt baseline naive.
+5. **Feature vật lý quan trọng nhất là nhóm NHIỄU + shape FGS**: `fgs_residual_std_after_detrending`, `airs_cds_noise_proxy`, `fgs_oot_std_mean`, `airs_residual_std_after_detrending`, `fgs_oot_std_max`, `fgs_mid_transit_flux`, `fgs_depth_mid_transit`. ⇒ validate feature engineering dựa nhiễu/SNR (không chỉ transit depth).
+
+> **Tổng hợp:** điểm GLL bị chi phối bởi (a) model có uncertainty nội tại tốt và (b) đủ dữ liệu — hơn là bởi tầng recalibrate. Tree ensembles + đủ planet là công thức thắng; PHC nên trình bày trung thực như một hướng calibration có cơ sở lý thuyết nhưng **lợi ích thực nghiệm hạn chế** trên bộ dữ liệu này.
 
 ---
 
@@ -215,4 +238,9 @@ Kèm **reliability diagram** (coverage thực nghiệm vs danh nghĩa) và biể
 
 - **Bài toán:** hồi quy đa mục tiêu có bất định, chấm bằng GLL chuẩn hóa.
 - **Vấn đề lớn nhất:** ước lượng & hiệu chỉnh bất định *heteroscedastic* dưới metric GLL — nơi quyết định điểm số và là khoảng trống của baseline.
-- **Phương pháp đề xuất:** pipeline vật lý + Bayesian Ridge + Target PCA, với **đóng góp chủ chốt là PHC** — hiệu chỉnh $\sigma$ theo từng bước sóng (nghiệm đóng tối ưu GLL), mở rộng sang điều kiện-theo-feature và mixture các họ mô hình. Tất cả được đánh giá thống nhất bằng metric Ariel chính thức trên một benchmark harness chung.
+- **Phương pháp đề xuất:** pipeline vật lý + Target PCA + benchmark đa-họ trên metric Ariel chính thức, kèm PHC (hiệu chỉnh $\sigma$ per-wavelength có nghiệm đóng tối ưu GLL).
+- **Kết quả thực nghiệm (trung thực):**
+  - **Model tốt nhất = tree ensembles** (extra_trees/random_forest, GLL ~0.27–0.29 khi so công bằng); deep CNN/Transformer cạnh tranh (~0.22). Bayesian linear ~0.09.
+  - **Phát hiện chính: chất lượng uncertainty nội tại + đủ dữ liệu quyết định GLL** — point-estimator (mean tốt, kể cả xgboost) đều GLL = 0 vì σ không tin cậy.
+  - **PHC: kết quả âm trung thực** — recalibrate tường minh cho lợi ích biên/âm vì σ nội tại đã đủ tốt (thậm chí hơi rộng); `feature_conditioned` overfit. PHC vẫn có giá trị lý thuyết (nghiệm đóng) và để chuẩn hóa σ giữa các model khi so sánh, nhưng **không phải đòn bẩy chính** trên dữ liệu này.
+- **Bài học phương pháp luận:** phải đồng bộ protocol (cùng split + cùng calibration) mới so sánh ML vs Deep công bằng — nếu không sẽ kết luận sai ("deep thắng" là artifact).
