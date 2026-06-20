@@ -161,7 +161,29 @@ class TorchSequenceRegressor:
             raise RuntimeError("Model must be fitted before saving weights.")
         self.torch.save(self.model.state_dict(), path)
 
-    def load_weights(self, path, n_time: int, n_channels: int, n_targets: int) -> "TorchSequenceRegressor":
+    def load_weights(
+        self,
+        path,
+        n_time: int,
+        n_channels: int,
+        n_targets: int | None = None,
+        *,
+        y_train: np.ndarray | None = None,
+    ) -> "TorchSequenceRegressor":
+        """Restore a model from a saved ``state_dict``.
+
+        ``save_weights`` stores only the network weights, not the target PCA. When
+        the model was trained with ``n_components`` set, pass ``y_train`` (the same
+        training targets) so the deterministic PCA is refit and predictions invert
+        back to full target space; ``n_targets`` is then inferred from it.
+        """
+        if y_train is not None and self.config.n_components is not None:
+            y_arr = np.asarray(y_train, dtype=np.float32)
+            n_comp = min(self.config.n_components, y_arr.shape[0], y_arr.shape[1])
+            self.pca_ = PCA(n_components=n_comp, random_state=self.config.random_state).fit(y_arr)
+            n_targets = n_comp
+        if n_targets is None:
+            raise ValueError("load_weights requires n_targets, or y_train when n_components is set.")
         self.n_targets_ = n_targets
         self.model = self._build_model(n_time, n_channels, n_targets).to(self.device)
         self.model.load_state_dict(self.torch.load(path, map_location=self.device))

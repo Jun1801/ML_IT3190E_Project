@@ -207,6 +207,8 @@ Kèm **reliability diagram** (coverage thực nghiệm vs danh nghĩa) và biể
 
 > Deep CNN/Transformer dẫn đầu, nhưng nhóm tree + Bayesian (có calibration) bám sát; point-estimator cần một tầng σ thực (PHC/conformal) để cạnh tranh.
 
+**Lưu ý đồng bộ metric.** Bảng merged ở trên gộp 2 protocol khác nhau (ML: 3-fold CV + PHC; Deep: single-split, σ thô) nên chỉ **so sánh tương đối**. Để **apples-to-apples**, `run_deep_learning.ipynb` §6 đánh giá ML và Deep trên **cùng tập eval** (nửa `va`), **cùng naive_ref (train)**, và **cùng PHC per-wavelength** (fit calibrator trên nửa `va` còn lại, leak-free) → `sync_ml_vs_deep.csv`. Sau khi áp PHC cho cả hai, so sánh mới hoàn toàn công bằng.
+
 ---
 
 ## 5. Kết luận cho báo cáo
