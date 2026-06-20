@@ -11,7 +11,7 @@
 
 The Ariel Data Challenge 2025 is a **multi-target probabilistic regression** problem: from noisy telescope detector data, predict an exoplanet's atmospheric transmission spectrum (283 wavelength values) **together with a per-wavelength uncertainty**, scored by a normalized **Gaussian Log-Likelihood (GLL)** that rewards both accuracy *and* well-calibrated confidence.
 
-We build an end-to-end pipeline: detector calibration → light-curve extraction → transit detection → physics-based feature engineering → Target-PCA regression, and benchmark **22 models across 8 families** (linear, Bayesian, kernel/SVM, neighbours, tree ensembles, shallow neural, hybrid, and deep sequence networks) on the official metric. We propose **PHC (Physics-conditioned Heteroscedastic Calibration)**, a per-wavelength uncertainty-calibration method with a closed-form GLL optimum, and we evaluate deep sequence models (CNN1D/TCN/LSTM/GRU/Transformer/Autoencoder) on raw light curves.
+We build an end-to-end pipeline: detector calibration → light-curve extraction → transit detection → physics-based feature engineering → Target-PCA regression, and benchmark **22 models across 7 families** (linear, Bayesian, kernel/SVM, neighbours, tree ensembles, shallow neural, and deep sequence networks) on the official metric. We formalise **PHC (Physics-conditioned Heteroscedastic Calibration)**, an uncertainty-calibration framework with a closed-form per-wavelength GLL optimum, and we evaluate deep sequence models (CNN1D/TCN/LSTM/GRU/Transformer/Autoencoder) on raw light curves.
 
 Our headline findings, established through a **protocol-synchronized comparison**, are: (1) **tree ensembles win** the official metric (extra_trees 0.287, random_forest 0.273 GLL) with deep CNN/Transformer close behind (~0.22); the earlier impression that "deep wins" was a **protocol artifact**; (2) **uncertainty quality gates the score** — every point-estimator (including XGBoost with the *best* RMSE) scores GLL = 0 because its uncertainty is uninformative; (3) PHC is a **principled but empirically marginal** method — the models' intrinsic uncertainty is already adequate; and (4) the score depends strongly on dataset size (GLL ≈ 0 below ~800 planets). We report these honestly, including the negative results.
 
@@ -44,10 +44,12 @@ The Ariel Data Challenge 2025 (NeurIPS) frames this as a supervised learning tas
 ### 1.1 Contributions
 
 1. **An end-to-end physics-based pipeline** (detector calibration → light curves → transit detection → physics feature engineering → Target-PCA modelling), implemented as a reusable, tested library.
-2. **A systematic 8-family benchmark of 22 models** evaluated on the *official* Ariel GLL metric on identical cross-validation folds.
-3. **PHC — Physics-conditioned Heteroscedastic Calibration**, a per-wavelength uncertainty-calibration method with a **closed-form GLL-optimal** scale, extended to a feature-conditioned multiplier and a GLL-weighted family mixture.
+2. **A systematic benchmark of 22 models across 7 families** evaluated on the *official* Ariel GLL metric on identical cross-validation folds.
+3. **A principled uncertainty-calibration framework, PHC** (Physics-conditioned Heteroscedastic Calibration), with a **closed-form GLL-optimal** per-wavelength scale. We use it to *standardise* uncertainty across models for a fair comparison, and we report its empirical effect honestly — it turns out to be a **diagnostic** finding (intrinsic model uncertainty is already adequate) rather than a performance booster.
 4. **Deep sequence baselines** (CNN1D, TCN, LSTM, GRU, Transformer, Autoencoder+MLP) trained directly on calibrated light curves.
 5. A **protocol-synchronized ML-vs-Deep comparison** and an honest discussion of findings, **including negative results** (PHC, mean/shape decomposition) — which we argue is itself a methodological contribution.
+
+> Note on emphasis: our strongest results are the **systematic metric-faithful benchmark**, the **fair synchronized comparison**, and the **"uncertainty-quality gates the score" finding**. PHC is presented as a theoretically-grounded framework and an analysis tool, not as a method that improves the score.
 
 ---
 
@@ -190,9 +192,11 @@ We organise all estimators into families (`src/estimators.py`, `MODEL_FAMILIES`;
 
 Uncertainty is obtained per family from the most natural source: **Bayesian predictive variance** (bayesian_ridge, ard, gaussian_process, ngboost), **ensemble variance** (random_forest, extra_trees), or a **residual-RMSE fallback** for point estimators (ridge, lasso, svr, knn, the gradient-boosting machines).
 
-### 5.5 Proposed method — PHC (Physics-conditioned Heteroscedastic Calibration)
+> The 22-model benchmark in §6.1 covers seven of these families (the six ML families above plus deep sequence). The *hybrid* and *mean-shift* families are defined for completeness but are not part of the main benchmark — mean-shift is examined as an ablation in §6.4.
 
-The metric grades $\sigma$ as strongly as $\mu$, yet raw model $\sigma$ is typically mis-scaled. PHC treats uncertainty calibration as a separate, GLL-optimised stage with three steps.
+### 5.5 Uncertainty-calibration framework — PHC (Physics-conditioned Heteroscedastic Calibration)
+
+The metric grades $\sigma$ as strongly as $\mu$, so a recalibration stage is a natural idea. PHC formalises uncertainty calibration as a separate, GLL-optimised stage with three steps. We present it as a **principled framework** (the per-wavelength optimum below is exact) and use it to put every model's $\sigma$ on a common footing for the fair comparison of §6.6; its *empirical* effect on the score is examined critically in §6.3.
 
 **Step 1 — Per-wavelength scale (closed form).** Replace a single global scalar by an independent scale $s_j$ per wavelength. Because the GLL is additive over elements and $s_j$ only affects column $j$, setting $\partial(\text{GLL})/\partial s_j = 0$ yields a **closed-form optimum**:
 
@@ -256,7 +260,7 @@ We cross-validate every model on identical folds and the official metric. The fu
 
 ![Merged benchmark — all models by GLL](figures/merged_benchmark.png)
 
-The data splits into **two clusters**. Models with **tight, informative uncertainty** (deep σ̄≈0.002–0.004, tree ensembles σ̄≈0.003, Bayesian models σ̄≈0.005–0.008) score GLL = 0.09–0.23 with coverage ≈ 0.72–0.95. The **GLL = 0** cluster has two distinct failure modes: (i) **point estimators** (ridge, lasso, elastic_net, mlp, svr, kernel_ridge, knn, and the gradient-boosting machines) whose residual-RMSE-fallback uncertainty is far too wide (σ̄≈0.28–0.71, coverage 1.0) — including **XGBoost, which has the *best RMSE of any model* (0.00237) yet still scores 0**; and (ii) the two weakest deep models (lstm, autoencoder_mlp) whose σ̄ is reasonable (~0.01–0.013) but whose **mean is poor** (RMSE ≈ 0.010, ~4× the best). Both confirm that a good score needs *both* an accurate mean *and* a well-scaled uncertainty.
+The data splits into **two clusters**. Models with **tight, informative uncertainty** (deep σ̄≈0.002–0.004, tree ensembles σ̄≈0.003, Bayesian models σ̄≈0.005–0.008) score GLL = 0.09–0.23 with coverage ≈ 0.71–0.95. The **GLL = 0** cluster has two distinct failure modes: (i) **point estimators** (ridge, lasso, elastic_net, mlp, svr, kernel_ridge, knn, and the gradient-boosting machines) whose residual-RMSE-fallback uncertainty is far too wide (σ̄≈0.28–0.71, coverage 1.0) — including **XGBoost, which has the *best RMSE of any model* (0.00237) yet still scores 0**; and (ii) the two weakest deep models (lstm, autoencoder_mlp) whose σ̄ is reasonable (~0.01–0.013) but whose **mean is poor** (RMSE ≈ 0.010, ~4× the best). Both confirm that a good score needs *both* an accurate mean *and* a well-scaled uncertainty.
 
 > **Caveat on this table.** It mixes protocols (ML = 3-fold CV + PHC; Deep = single split, raw σ), so it is only a *rough* comparison. §6.6 corrects this.
 
@@ -281,7 +285,7 @@ This is a **negative result, reported honestly**: *no calibration* scores highes
 
 ![Reliability diagram](figures/analysis_reliability.png)
 
-The curve lies **above the diagonal at every level** — the calibrated model is **under-confident** (empirical coverage exceeds nominal, i.e. σ is too *wide*). Since the intrinsic σ (Bayesian variance + residual RMSE) is already wide, multiplicative recalibration only widens it further, hurting GLL. **Conclusion:** the models' *intrinsic* uncertainty is already adequate on this dataset; the explicit PHC layer is theoretically sound (closed-form optimum) but provides marginal-to-negative empirical benefit here.
+The curve lies **above the diagonal at every level** — the calibrated model is **under-confident** (empirical coverage exceeds nominal, i.e. σ is too *wide*). Two mechanisms explain the negative result: (i) the base `TargetPCARegressor` **already folds a per-wavelength residual-RMSE into σ**, so an additional per-wavelength `SigmaCalibrator` is largely **redundant** — which is exactly why `per_wavelength` and `scalar` score identically (0.0931 vs 0.0931); and (ii) since the intrinsic σ is already (over-)wide, any multiplicative recalibration widens it further, lowering GLL. **Conclusion (diagnostic):** on this dataset the models' *intrinsic* uncertainty is already adequate; the explicit PHC layer is theoretically sound (closed-form optimum) and useful for standardising σ across models, but it is **not** a score-improving step here. This is a deliberate negative result, reported in full.
 
 ### 6.4 Mean-depth / shape decomposition (negative ablation)
 
@@ -372,7 +376,7 @@ The fold-to-fold standard deviation (~0.025) is much smaller than the gap betwee
 
 ## 9. Conclusion
 
-We presented a complete, tested pipeline for probabilistic atmospheric-spectrum retrieval and a systematic, metric-faithful comparison of 22 models across 8 families plus deep sequence baselines. Through a protocol-synchronized evaluation we established that **tree ensembles win** on the official GLL, that **uncertainty quality — not mean accuracy — gates the score**, and that the proposed PHC calibration, while theoretically grounded, offers only marginal empirical gains because intrinsic model uncertainty is already adequate. We also documented strong data dependence and the dominant role of physics-based noise features. We report all results, including negative ones, and emphasise the methodological lesson that fair comparison requires synchronised protocols.
+We presented a complete, tested pipeline for probabilistic atmospheric-spectrum retrieval and a systematic, metric-faithful comparison of 22 models across 7 families (including deep sequence baselines). Through a protocol-synchronized evaluation we established that **tree ensembles win** on the official GLL, that **uncertainty quality — not mean accuracy — gates the score**, and that the proposed PHC calibration, while theoretically grounded, offers only marginal empirical gains because intrinsic model uncertainty is already adequate. We also documented strong data dependence and the dominant role of physics-based noise features. We report all results, including negative ones, and emphasise the methodological lesson that fair comparison requires synchronised protocols.
 
 ---
 
