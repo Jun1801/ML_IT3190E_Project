@@ -183,6 +183,32 @@ Kèm **reliability diagram** (coverage thực nghiệm vs danh nghĩa) và biể
 
 ---
 
+## 4c. Kết quả thực nghiệm (merged ML + Deep, official Ariel GLL)
+
+**22 model / 7 họ** chấm trên cùng metric Ariel GLL (`merged_benchmark.csv`). Top:
+
+| Hạng | Model | Loại | Ariel GLL | RMSE | σ_mean | cov 1σ |
+|---|---|---|---|---|---|---|
+| 1 | cnn1d | deep | 0.231 | 0.0028 | — | 0.79 |
+| 2 | transformer | deep | 0.226 | 0.0021 | — | 0.72 |
+| 3 | extra_trees | ml/trees | 0.215 | 0.0025 | 0.003 | 0.94 |
+| 4 | random_forest | ml/trees | 0.199 | 0.0027 | 0.004 | 0.93 |
+| 5 | tcn | deep | 0.178 | 0.0031 | — | 0.73 |
+| 6 | ngboost | ml/bayesian | 0.167 | 0.0022 | 0.005 | 0.95 |
+| 7 | ard | ml/bayesian | 0.143 | 0.0025 | 0.005 | 0.94 |
+| 8 | gru | deep | 0.129 | 0.0045 | — | 0.84 |
+| 9 | bayesian_ridge | ml/bayesian | 0.093 | 0.0035 | 0.008 | 0.95 |
+| 10–22 | autoencoder_mlp, lstm, **+ 11 model GLL = 0** | | ~0 | | | |
+
+**Phát hiện cốt lõi — uncertainty quyết định GLL (2 nhóm tách bạch):**
+- **GLL > 0**: model có **σ tự nhiên, chặt, đúng scale** — tree-ensemble variance (extra_trees/random_forest, σ~0.003), Bayesian predictive (ngboost/ard/bayesian_ridge, σ~0.005–0.008), deep log-σ head. Coverage 1σ ≈ 0.72–0.95.
+- **GLL = 0** (ridge, lasso, elastic_net, mlp, svr, kernel_ridge, knn, **lightgbm, xgboost, hist_gb**): point-estimator **không có σ gốc** → σ fallback quá rộng (0.28–0.71), coverage = 1.0 → tụt về mức naive.
+- Minh chứng đắt: **xgboost RMSE tốt nhất (0.0024) nhưng GLL = 0**. *Mean tốt ≠ điểm GLL cao* — đúng luận điểm PHC: **chất lượng uncertainty mới quyết định**.
+
+> Deep CNN/Transformer dẫn đầu, nhưng nhóm tree + Bayesian (có calibration) bám sát; point-estimator cần một tầng σ thực (PHC/conformal) để cạnh tranh.
+
+---
+
 ## 5. Kết luận cho báo cáo
 
 - **Bài toán:** hồi quy đa mục tiêu có bất định, chấm bằng GLL chuẩn hóa.
