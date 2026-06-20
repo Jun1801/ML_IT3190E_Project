@@ -19,7 +19,13 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 
 from config import ModelConfig
-from models import ModelPrediction, ResidualCorrectedRegressor, TargetPCARegressor, WeightedEnsembleRegressor
+from models import (
+    MeanShiftedRegressor,
+    ModelPrediction,
+    ResidualCorrectedRegressor,
+    TargetPCARegressor,
+    WeightedEnsembleRegressor,
+)
 
 
 def _resolve_device(use_gpu: bool, framework: str) -> str:
@@ -453,6 +459,7 @@ MODEL_FAMILIES: dict[str, tuple[str, ...]] = {
     ),
     "neural": ("mlp",),
     "hybrid": ("br_lgbm_residual", "br_boosting_residual"),
+    "mean_shift": ("ms_bayesian_ridge", "ms_ridge", "ms_extra_trees"),
 }
 
 
@@ -522,6 +529,15 @@ class ModelFactory:
                 BayesianRidgePCARegressor(cfg),
                 BoostingPCARegressor(cfg, **residual_params),
                 eta=eta,
+                sigma_floor=cfg.sigma_floor,
+            )
+        if normalized.startswith("ms_") or normalized == "mean_shift":
+            base = normalized[3:] if normalized.startswith("ms_") else params.get("base", "bayesian_ridge")
+            if base.startswith("ms_") or base in {"mean_shift", ""}:
+                raise ValueError(f"Invalid mean_shift base: {base}")
+            return MeanShiftedRegressor(
+                ModelFactory.create(base, cfg),   # depth model (target auto-caps to 1 component)
+                ModelFactory.create(base, cfg),   # shape model
                 sigma_floor=cfg.sigma_floor,
             )
         raise ValueError(f"Unknown model name: {name}")

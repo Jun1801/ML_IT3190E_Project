@@ -214,6 +214,58 @@ class ResidualCorrectedRegressor:
         return ModelPrediction(mu=mu, sigma=np.maximum(sigma, self.sigma_floor))
 
 
+class MeanShiftedRegressor:
+    """Split the spectrum into per-planet mean depth + wavelength shape, modelled separately.
+
+    The target is nearly rank-1: each planet's spectrum ≈ a constant transit depth
+    plus a tiny wavelength-dependent shape (the atmospheric signal). This wrapper
+    trains a ``depth_model`` on the per-row mean ``d_i = mean_λ y_iλ`` and a
+    ``shape_model`` on the mean-removed residual ``r_iλ = y_iλ - d_i`` so the shape
+    model focuses purely on the science signal instead of the dominant offset.
+    Prediction: ``μ = depth_μ + shape_μ``; ``σ = sqrt(depth_σ² + shape_σ²)``.
+    """
+
+    def __init__(
+        self,
+        depth_model: TargetPCARegressor,
+        shape_model: TargetPCARegressor,
+        *,
+        sigma_floor: float = 1e-8,
+    ) -> None:
+        self.depth_model = depth_model
+        self.shape_model = shape_model
+        self.sigma_floor = sigma_floor
+
+    @staticmethod
+    def _split(y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        y = np.asarray(y, dtype=float)
+        depth = y.mean(axis=1, keepdims=True)  # (n, 1)
+        return depth, y - depth
+
+    def fit(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        *,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+    ) -> "MeanShiftedRegressor":
+        depth, shape = self._split(y)
+        depth_val = shape_val = None
+        if x_val is not None and y_val is not None:
+            depth_val, shape_val = self._split(y_val)
+        self.depth_model.fit(x, depth, x_val=x_val, y_val=depth_val)
+        self.shape_model.fit(x, shape, x_val=x_val, y_val=shape_val)
+        return self
+
+    def predict(self, x: np.ndarray) -> ModelPrediction:
+        depth = self.depth_model.predict(x)
+        shape = self.shape_model.predict(x)
+        mu = depth.mu + shape.mu  # (n,1) broadcasts over wavelengths
+        sigma = np.sqrt(depth.sigma**2 + shape.sigma**2)
+        return ModelPrediction(mu=mu, sigma=np.maximum(sigma, self.sigma_floor))
+
+
 class WeightedEnsembleRegressor:
     def __init__(self, models: list[TargetPCARegressor], weights: list[float] | None = None) -> None:
         if not models:
