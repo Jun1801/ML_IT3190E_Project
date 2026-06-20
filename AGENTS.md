@@ -8,7 +8,7 @@ All library modules live flat in `src/` — no sub-package, no `ariel_ml.` prefi
 
 ```text
 src/                     flat module directory (each file is directly importable)
-  config.py              configuration dataclasses (PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
+  config.py              configuration dataclasses (DatasetConfig, PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
   preprocessing.py       detector calibration, light curve extraction, transit detection
   features.py            physics-based feature engineering
   pipeline.py            calibration → feature orchestration (ArielPreprocessFeaturePipeline)
@@ -16,8 +16,8 @@ src/                     flat module directory (each file is directly importable
   dataset_builder.py     data loading and feature DataFrame building
   sequence_dataset.py    [samples, time, channels] tensor builder for deep models
   metrics.py             RMSE, Gaussian NLL, Ariel GLL score, SigmaCalibrator
-  models.py              TargetPCARegressor (base), ResidualCorrectedRegressor, WeightedEnsembleRegressor
-  estimators.py          all 19 concrete *PCARegressor classes + ModelFactory + MODEL_FAMILIES
+  models.py              TargetPCARegressor (base), ResidualCorrectedRegressor, MeanShiftedRegressor, WeightedEnsembleRegressor
+  estimators.py          17 concrete *PCARegressor classes + MeanShiftedRegressor factory + ModelFactory + MODEL_FAMILIES
   deep_models.py         TorchSequenceRegressor + CNN1D/LSTM/GRU/TCN/Transformer/AutoencoderMLP
   training.py            CV, hyperparameter search, train/val split, evaluation
   benchmark.py           benchmark_models() — BenchmarkResult, BenchmarkRow, family_of()
@@ -33,6 +33,7 @@ notebooks/               exploratory notebooks (import from src/, not inline cod
 plans/                   research notes and model rationale (Vietnamese)
 benchmark/
   result.csv             committed benchmark comparison table
+  benchmark.csv          aggregated benchmark results (all model families)
 precomputed/             committed npz tensors for deep learning experiments
 data/                    local Kaggle data — git-ignored
 outputs/                 generated models, features, submissions — git-ignored
@@ -73,8 +74,8 @@ python scripts/benchmark.py --features outputs/features_train.csv --targets data
 
 ## Code Organization Rules
 
-- `models.py` = base classes ONLY: `TargetPCARegressor`, `ResidualCorrectedRegressor`, `WeightedEnsembleRegressor`, `ModelPrediction`.
-- `estimators.py` = concrete estimators + factory: all 19 `*PCARegressor` subclasses, `_resolve_device`, `MODEL_FAMILIES`, `ModelFactory`.
+- `models.py` = base classes ONLY: `TargetPCARegressor`, `ResidualCorrectedRegressor`, `MeanShiftedRegressor`, `WeightedEnsembleRegressor`, `ModelPrediction`.
+- `estimators.py` = concrete estimators + factory: 17 `*PCARegressor` subclasses, `MeanShiftedRegressor`-based `ms_*` factory entries, `_resolve_device`, `MODEL_FAMILIES`, `ModelFactory`.
 - `data_io.py` is named `data_io` (not `io`) to avoid shadowing Python's stdlib `io` module.
 - Never add `src/ariel_ml/` back. If new modules are needed, add them flat to `src/`.
 

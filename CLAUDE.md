@@ -12,7 +12,7 @@ Core approach: **Bayesian Ridge Regression + Physics-based Feature Engineering +
 
 ```
 src/                       # All library modules (importable directly via sys.path; no sub-package)
-  config.py                # Configuration dataclasses (PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
+  config.py                # Configuration dataclasses (DatasetConfig, PreprocessConfig, FeatureConfig, ModelConfig, DeepModelConfig)
   preprocessing.py         # Detector calibration, light curve extraction, transit detection
   features.py              # Physics-based feature engineering
   pipeline.py              # End-to-end calibration → feature orchestration
@@ -20,8 +20,8 @@ src/                       # All library modules (importable directly via sys.pa
   dataset_builder.py       # Data loading and feature building from raw observations
   sequence_dataset.py      # Build [samples, time, channels] light-curve tensors for deep models
   metrics.py               # Evaluation metrics (RMSE, Gaussian NLL, official Ariel GLL score, sigma calibration)
-  models.py                # TargetPCARegressor base class + ResidualCorrectedRegressor + WeightedEnsembleRegressor
-  estimators.py            # All concrete *PCARegressor subclasses + ModelFactory + MODEL_FAMILIES
+  models.py                # TargetPCARegressor base class + ResidualCorrectedRegressor + MeanShiftedRegressor + WeightedEnsembleRegressor
+  estimators.py            # 17 concrete *PCARegressor subclasses + MeanShiftedRegressor factory + ModelFactory + MODEL_FAMILIES
   deep_models.py           # Deep learning baselines (CNN1D, LSTM, GRU, TCN, Transformer, Autoencoder)
   training.py              # Training pipeline with CV, hyperparameter search, evaluation
   benchmark.py             # benchmark_models() — BenchmarkResult, BenchmarkRow, family_of()
@@ -39,6 +39,7 @@ plans/                     # Research notes and model rationale (Vietnamese)
   ariel_2025_model_plan.md # Detailed pipeline design with formulas and experiments
 benchmark/
   result.csv               # Committed benchmark results table
+  benchmark.csv            # Aggregated benchmark results (all model families)
 ```
 
 ## Setup & Dependencies
@@ -108,6 +109,7 @@ python scripts/train.py --features outputs/features_train.csv --targets data/tra
 #   trees:      random_forest, extra_trees, boosting, hist_gradient_boosting, lightgbm, xgboost
 #   neural:     mlp
 #   hybrid:     br_lgbm_residual, br_boosting_residual
+#   mean_shift: ms_bayesian_ridge, ms_ridge, ms_extra_trees  (MeanShiftedRegressor wrapper)
 ```
 
 ### Benchmark All Model Families
@@ -181,6 +183,7 @@ Output: `dict[str, float]` of ~50–150 features per observation
 ### Key Classes & Design Patterns
 
 **Configuration Objects** (`config.py`):
+- `DatasetConfig`: Data root paths and file names for Kaggle data layout
 - `PreprocessConfig`: Detector calibration & light curve normalization parameters
 - `FeatureConfig`: Feature extraction options
 - `ModelConfig`: PCA components, standardization, sigma floor, random state
@@ -190,7 +193,8 @@ Output: `dict[str, float]` of ~50–150 features per observation
 - `ArielPreprocessFeaturePipeline` (`pipeline.py`): Orchestrates calibration → light curves → features
 - `ArielDatasetBuilder` (`dataset_builder.py`): Loads raw observations, builds feature DataFrames
 - `TargetPCARegressor` (`models.py`): Base class for all tabular models — fit/predict/sigma pipeline
-- `ModelFactory` (`estimators.py`): Factory for creating model instances by name; all 19 concrete estimators defined here
+- `MeanShiftedRegressor` (`models.py`): Decomposes spectrum into per-planet mean depth + wavelength shape, models each separately
+- `ModelFactory` (`estimators.py`): Factory for creating model instances by name; 17 concrete *PCARegressor classes + MeanShiftedRegressor-based `ms_*` variants
 
 **Data Structures:**
 - `CalibrationBundle`: dead, dark, flat, read, linear_corr arrays
@@ -203,12 +207,18 @@ Output: `dict[str, float]` of ~50–150 features per observation
 - `TrainResult`: Model + prediction + evaluation + train/val indices
 
 **Training Utilities** (`training.py`):
-- `train_model`: Single train/val split with optional search
+- `train_model`: Single train/val split (delegates to `train_model_on_indices`)
+- `train_model_on_indices`: Core train/eval step on explicit index arrays (supports sigma_cal_fraction)
 - `cross_validate_model`: K-fold CV with GroupKFold (respects planet groups)
-- `hyperparameter_search`: Grid search over models & n_components
+- `hyperparameter_search`: Grid search over models × n_components × model_params
+- `search_n_components`: Fast exact n_components sweep for `TargetPCARegressor` — fits once at max k, reuses nested PCA prefix
 - `refit_full_model`: Refit best candidate on all data
+- `build_gll_weighted_ensemble`: PHC step 3 — scores each family on a held-out split, returns `WeightedEnsembleRegressor` with `softmax(score/temperature)` weights
+- `make_train_validation_split` / `make_cv_splitter`: Splitters respecting GroupKFold when planet groups are present
+- `feature_dicts_to_frame` / `targets_to_matrix`: Helpers to convert feature dicts and target DataFrames to numpy arrays
 - `CrossValidationResult`: Holds `fold_results: list[TrainResult]`; `.mean_metrics` averages over folds
 - `SearchCandidateResult` / `HyperparameterSearchResult`: Structured output from grid search with `best_candidate`
+- `EnsembleBuildResult`: Output of `build_gll_weighted_ensemble` — `ensemble`, `model_names`, `weights`, `val_scores`
 
 ## Model Comparison Strategy
 
@@ -343,8 +353,8 @@ pipeline = ArielPreprocessFeaturePipeline(preprocess, features)
 
 From `AGENTS.md`:
 - Keep all library modules in `src/` (flat, no sub-package); `src/` is on sys.path
-- `models.py` = base classes only (`TargetPCARegressor`, `ResidualCorrectedRegressor`, `WeightedEnsembleRegressor`)
-- `estimators.py` = all 19 concrete `*PCARegressor` subclasses + `ModelFactory` + `MODEL_FAMILIES`
+- `models.py` = base classes only (`TargetPCARegressor`, `ResidualCorrectedRegressor`, `MeanShiftedRegressor`, `WeightedEnsembleRegressor`, `ModelPrediction`)
+- `estimators.py` = 17 concrete `*PCARegressor` subclasses + `MeanShiftedRegressor`-based `ms_*` factory entries + `ModelFactory` + `MODEL_FAMILIES`
 - Use `tests/` for deterministic unit tests (synthetic data preferred)
 - Use `notebooks/` only for exploratory analysis; import production code from `src/`
 - Keep large artifacts (models, submissions, raw data) in `outputs/` and `data/` (both git-ignored)

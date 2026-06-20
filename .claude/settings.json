@@ -11,7 +11,10 @@
       "Bash(python -m pytest tests/ -v --tb=short)",
       "Bash(python3 -m pytest tests/ -v --tb=short)",
       "Bash(uv run *)",
-      "Bash(python -m pytest tests/test_deep_models.py -v)"
+      "Bash(python -m pytest tests/test_deep_models.py -v)",
+      "Bash(git fetch *)",
+      "Bash(git stash *)",
+      "Bash(git pull *)"
     ]
   }
 }
