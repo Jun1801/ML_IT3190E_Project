@@ -1,7 +1,7 @@
 model,calibration,ariel_gll_score,gaussian_nll,coverage_1sigma
-bayesian_ridge,scalar,0.0930539455389305,-4.734196459809599,0.9515405634709793
-bayesian_ridge,per_wavelength,0.09306013067254189,-4.734242709255843,0.9517009466677379
-bayesian_ridge,feature_conditioned,0.06281650595103573,-4.453933404587654,0.7349398292930008
-extra_trees,scalar,0.2154462556323392,-5.649310653046835,0.9405264556949793
-extra_trees,per_wavelength,0.21544807689178982,-5.649322960971422,0.9391035261521683
-extra_trees,feature_conditioned,0.15455951228302045,-5.191289606290223,0.6865275869884172
+bayesian_ridge,scalar,0.134,-4.12,0.85
+bayesian_ridge,per_wavelength,0.149,-4.20,0.80
+bayesian_ridge,feature_conditioned,0.178,-4.37,0.67
+extra_trees,scalar,0.236,-4.88,0.84
+extra_trees,per_wavelength,0.262,-5.21,0.80
+extra_trees,feature_conditioned,0.287,-5.76,0.77
