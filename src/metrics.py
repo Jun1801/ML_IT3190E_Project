@@ -4,10 +4,16 @@ import numpy as np
 
 
 def gaussian_nll(y_true: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> float:
+    """Mean per-element Gaussian negative log-likelihood (full constant included).
+
+    Equals ``-mean(gaussian_log_likelihood(...))``; the ``0.5*log(2*pi)`` term makes the
+    reported value the standard Gaussian NLL. (A constant offset does not change which
+    scale/model minimises it, so calibration and model selection are unaffected.)
+    """
     y_true = np.asarray(y_true, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.maximum(np.asarray(sigma, dtype=float), 1e-12)
-    return float(np.mean(0.5 * ((y_true - mu) / sigma) ** 2 + np.log(sigma)))
+    return float(np.mean(0.5 * ((y_true - mu) / sigma) ** 2 + np.log(sigma) + 0.5 * np.log(2.0 * np.pi)))
 
 
 def gaussian_log_likelihood(

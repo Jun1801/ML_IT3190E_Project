@@ -335,10 +335,9 @@ def search_n_components(
             prop_cal = np.sqrt(np.maximum((zc_std[:, :k] ** 2) @ (comp_k ** 2), 0.0))
             residual_rmse = rmse_per_target(y_arr[cal_idx], mu_cal, floor=base.residual_floor)
 
-            # Match TargetPCARegressor.fit exactly: the calibrator is fitted on the
-            # uncalibrated sigma BEFORE residual_rmse is folded in (at that point
-            # residual_rmse_ is still None -> the residual floor is used).
-            sigma_cal_fit = np.maximum(np.sqrt(prop_cal ** 2 + base.residual_floor ** 2), base.sigma_floor)
+            # Match TargetPCARegressor.fit: the calibrator is fitted on the uncalibrated
+            # sigma that includes residual_rmse (the same sigma used at prediction time).
+            sigma_cal_fit = np.maximum(np.sqrt(prop_cal ** 2 + residual_rmse ** 2), base.sigma_floor)
             calibrator = model._build_calibrator()
             if base.calibrate_sigma:
                 calibrator.fit(y_arr[cal_idx], mu_cal, sigma_cal_fit, xc)
@@ -462,6 +461,10 @@ def build_gll_weighted_ensemble(
     the official ``ariel_gll_score``. Mixture weights are ``softmax(score / temperature)``
     so better-calibrated families dominate, and predictions are combined as a
     Gaussian mixture (means + second moments) by ``WeightedEnsembleRegressor``.
+
+    Note: the returned ensemble's members are fitted on the *training split* only (the
+    rest was used to weight them). To deploy on all data, call ``ensemble.fit(x, y)`` —
+    that refits the members while keeping the GLL-derived weights.
     """
     names = [str(name) for name in model_names]
     if not names:

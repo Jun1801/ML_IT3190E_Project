@@ -89,6 +89,23 @@ class DeepModelTests(unittest.TestCase):
         self.assertEqual(out.mu.shape, (3, y.shape[1]))         # back in full 10-dim target space
         np.testing.assert_allclose(out.mu, ref.mu, rtol=1e-5, atol=1e-6)
 
+    def test_load_weights_requires_y_train_when_pca_used(self):
+        import tempfile
+        from pathlib import Path
+
+        from deep_models import CNN1DRegressor
+
+        x, y = self._make_data(n=16, n_targets=10)
+        cfg = DeepModelConfig(epochs=1, batch_size=4, hidden_size=16, device="cpu", n_components=4)
+        model = CNN1DRegressor(cfg)
+        model.fit(x, y)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "w.pt"
+            model.save_weights(p)
+            # Must NOT silently return PCA-space predictions: raise when y_train is missing.
+            with self.assertRaises(ValueError):
+                CNN1DRegressor(cfg).load_weights(p, n_time=10, n_channels=3, n_targets=4)
+
     def test_all_architectures_smoke(self):
         from deep_models import (
             AutoencoderMLPRegressor,

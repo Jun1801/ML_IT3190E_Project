@@ -6,7 +6,7 @@ import joblib
 import numpy as np
 
 from config import ModelConfig
-from metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, gaussian_nll
+from metrics import FeatureConditionedSigmaCalibrator, SigmaCalibrator, gaussian_log_likelihood, gaussian_nll
 from models import MeanShiftedRegressor, ResidualCorrectedRegressor, TargetPCARegressor
 from estimators import (
     MODEL_FAMILIES,
@@ -54,6 +54,15 @@ class MetricsTests(unittest.TestCase):
         after = gaussian_nll(y, mu, calibrated)
 
         self.assertLess(after, before)
+
+    def test_gaussian_nll_equals_negative_mean_log_likelihood(self):
+        rng = np.random.default_rng(0)
+        y = rng.normal(size=(8, 5))
+        mu = y + rng.normal(scale=0.1, size=(8, 5))
+        sigma = np.full((8, 5), 0.2)
+        self.assertAlmostEqual(
+            gaussian_nll(y, mu, sigma), -float(np.mean(gaussian_log_likelihood(y, mu, sigma))), places=9
+        )
 
     def test_sigma_calibrator_shrinks_overwide_sigma(self):
         y = np.array([[1.0, 2.0], [1.1, 1.9]])
@@ -239,6 +248,22 @@ class ModelTests(unittest.TestCase):
 
         self.assertEqual(prediction.mu.shape, y[28:].shape)
         self.assertTrue(np.all(prediction.sigma > 0))
+
+    def test_calibration_does_not_explode_for_point_estimators(self):
+        # Regression: a point estimator (zero propagated variance, e.g. ridge) must NOT get a
+        # blown-up sigma. The calibrator is fit on the residual-inclusive sigma, so the scale
+        # stays ~1 and sigma ~ RMSE — not ~100x RMSE (the earlier calibrate-on-floor bug).
+        rng = np.random.default_rng(0)
+        n, d, m = 200, 6, 20
+        x = rng.normal(size=(n, d))
+        y = 0.01 + x @ (rng.normal(size=(d, m)) * 0.003) + rng.normal(size=(n, m)) * 5e-4
+        model = ModelFactory.create("ridge", ModelConfig(n_components=6, sigma_per_target=True))
+        model.fit(x[:140], y[:140], x_val=x[140:], y_val=y[140:])
+        pred = model.predict(x[140:])
+        rmse = float(np.sqrt(((y[140:] - pred.mu) ** 2).mean()))
+        sigma_mean = float(pred.sigma.mean())
+        self.assertLess(sigma_mean, 5 * rmse, msg=f"sigma {sigma_mean:.4g} >> rmse {rmse:.4g}: scale exploded")
+        self.assertGreater(sigma_mean, 0.1 * rmse, msg="sigma collapsed to ~0")
 
     def test_mean_shifted_factory_shapes_and_positive_sigma(self):
         x, y = make_synthetic_regression(n_samples=40, n_targets=12)

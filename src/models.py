@@ -79,8 +79,14 @@ class TargetPCARegressor:
                 floor=self.config.residual_floor,
             )
             if self.config.calibrate_sigma:
+                # Fit the calibrator on the SAME uncalibrated sigma used at prediction time —
+                # i.e. AFTER residual_rmse_ is folded in. Re-predicting here is essential:
+                # the earlier residual_pred.sigma omits residual_rmse_, so for point estimators
+                # (zero propagated variance) it sits at the floor and the calibration scale
+                # explodes (clipped to the upper bound), inflating sigma ~100x and collapsing GLL.
+                calibration_pred = self._predict_uncalibrated(residual_x)
                 self.sigma_calibrator.fit(
-                    residual_y, residual_pred.mu, residual_pred.sigma, self._transform_x(residual_x)
+                    residual_y, calibration_pred.mu, calibration_pred.sigma, self._transform_x(residual_x)
                 )
         return self
 

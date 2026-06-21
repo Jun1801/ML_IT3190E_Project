@@ -177,13 +177,21 @@ class TorchSequenceRegressor:
         training targets) so the deterministic PCA is refit and predictions invert
         back to full target space; ``n_targets`` is then inferred from it.
         """
-        if y_train is not None and self.config.n_components is not None:
+        if self.config.n_components is not None:
+            # The model predicts in PCA space; without the target PCA we cannot invert
+            # to full target space. Require y_train and refit the (deterministic) PCA —
+            # never silently return PCA-space predictions.
+            if y_train is None:
+                raise ValueError(
+                    "load_weights needs y_train when the model was trained with n_components "
+                    "(to refit the target PCA so predictions invert to full target space)."
+                )
             y_arr = np.asarray(y_train, dtype=np.float32)
             n_comp = min(self.config.n_components, y_arr.shape[0], y_arr.shape[1])
             self.pca_ = PCA(n_components=n_comp, random_state=self.config.random_state).fit(y_arr)
             n_targets = n_comp
         if n_targets is None:
-            raise ValueError("load_weights requires n_targets, or y_train when n_components is set.")
+            raise ValueError("load_weights requires n_targets (or y_train when n_components is set).")
         self.n_targets_ = n_targets
         self.model = self._build_model(n_time, n_channels, n_targets).to(self.device)
         self.model.load_state_dict(self.torch.load(path, map_location=self.device))
