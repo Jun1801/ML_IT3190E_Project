@@ -1,0 +1,2 @@
+family,model,status,gaussian_nll,ariel_gll_score,rmse_mean,mae_mean,coverage_1sigma,coverage_2sigma,sigma_mean,train_seconds,message
+bayesian,ngboost,ok,-5.2892990905085595,0.1672145398088057,0.00221021719418169,0.0012387208251634912,0.9532851012217902,0.9876171194129103,0.004660765738121003,23926.962465492998,

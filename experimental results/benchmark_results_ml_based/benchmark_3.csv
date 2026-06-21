@@ -1,0 +1,2 @@
+family,model,status,gaussian_nll,ariel_gll_score,rmse_mean,mae_mean,coverage_1sigma,coverage_2sigma,sigma_mean,train_seconds,message
+bayesian,gaussian_process,ok,-3.9120662894370675,0.0,0.010658912119593878,0.007509597582131128,0.919586548428912,0.976082103850128,0.015943172741817963,246.01542944300013,
