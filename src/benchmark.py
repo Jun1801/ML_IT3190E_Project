@@ -10,12 +10,10 @@ from config import ModelConfig
 from estimators import MODEL_FAMILIES, ModelFactory
 from training import cross_validate_model
 
-# Reverse lookup: canonical model name -> family.
 _MODEL_TO_FAMILY: dict[str, str] = {
     name: family for family, names in MODEL_FAMILIES.items() for name in names
 }
 
-# Metric columns surfaced in the comparison table, in display order.
 REPORT_METRICS: tuple[str, ...] = (
     "gaussian_nll",
     "ariel_gll_score",
@@ -35,7 +33,7 @@ def family_of(model_name: str) -> str:
 class BenchmarkRow:
     model_name: str
     family: str
-    status: str  # "ok" | "skipped" | "error"
+    status: str
     metrics: dict[str, float] = field(default_factory=dict)
     train_seconds: float = 0.0
     message: str = ""
@@ -50,8 +48,6 @@ class BenchmarkResult:
         return [row for row in self.rows if row.status == "ok"]
 
     def best(self, metric: str = "gaussian_nll", *, maximize: bool = False) -> BenchmarkRow | None:
-        """Best row by ``metric``. Set ``maximize=True`` for higher-is-better
-        metrics such as ``ariel_gll_score``."""
         candidates = [row for row in self.ok_rows if metric in row.metrics]
         if not candidates:
             return None
@@ -73,7 +69,6 @@ class BenchmarkResult:
             records.append(record)
         frame = pd.DataFrame.from_records(records)
         sort_metric = metrics[0] if metrics else "gaussian_nll"
-        # Successful rows first (sorted by the primary metric), then the rest.
         frame["_ok"] = (frame["status"] != "ok").astype(int)
         frame = frame.sort_values(
             ["family", "_ok", sort_metric], na_position="last"
@@ -92,13 +87,6 @@ def benchmark_models(
     random_state: int = 42,
     sigma_cal_fraction: float = 0.0,
 ) -> BenchmarkResult:
-    """Cross-validate every model on identical folds and collect comparison metrics.
-
-    Models whose optional dependency is missing are reported with status
-    ``"skipped"``; any other failure is captured as ``"error"`` so a single bad
-    model never aborts the whole sweep. Folds are deterministic in
-    ``random_state`` + ``groups``, so every model is scored on the same splits.
-    """
     names = list(model_names) if model_names is not None else ModelFactory.list_models()
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)
@@ -138,7 +126,7 @@ def benchmark_models(
                     message=str(exc),
                 )
             )
-        except Exception as exc:  # noqa: BLE001 - one bad model must not abort the sweep
+        except Exception as exc:
             rows.append(
                 BenchmarkRow(
                     model_name=name,

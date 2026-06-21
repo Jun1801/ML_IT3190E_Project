@@ -16,7 +16,7 @@ from estimators import (
     ExtraTreesPCARegressor,
     KernelRidgePCARegressor,
     ModelFactory,
-    RidgePCARegressor,
+    RidgePCARegressor
 )
 
 
@@ -67,7 +67,6 @@ class MetricsTests(unittest.TestCase):
     def test_per_target_calibration_beats_scalar_when_miscalibration_differs(self):
         rng = np.random.default_rng(0)
         n = 400
-        # Column 0 is over-confident (sigma too small); column 1 under-confident.
         y = np.column_stack([rng.normal(0.0, 0.1, n), rng.normal(0.0, 0.001, n)])
         mu = np.zeros_like(y)
         sigma = np.column_stack([np.full(n, 0.01), np.full(n, 0.1)])
@@ -86,13 +85,13 @@ class MetricsTests(unittest.TestCase):
         rng = np.random.default_rng(0)
         n_rows, n_cols = 300, 12
         feature = rng.uniform(-1.0, 1.0, n_rows)
-        row_scale = np.exp(0.9 * feature)  # per-row noise multiplier driven by feature 0
-        col_sigma = 0.01 * (1.0 + np.arange(n_cols))  # heteroscedastic columns
+        row_scale = np.exp(0.9 * feature)
+        col_sigma = 0.01 * (1.0 + np.arange(n_cols))
         noise = rng.normal(size=(n_rows, n_cols)) * (row_scale[:, None] * col_sigma[None, :])
         mu = np.zeros((n_rows, n_cols))
         y = mu + noise
-        sigma = np.tile(col_sigma, (n_rows, 1))  # right columns, but blind to per-row scale
-        x = np.column_stack([feature, rng.normal(size=n_rows)])  # feature 0 informative, 1 noise
+        sigma = np.tile(col_sigma, (n_rows, 1))
+        x = np.column_stack([feature, rng.normal(size=n_rows)])
 
         per_target = SigmaCalibrator(per_target=True).fit(y, mu, sigma)
         feature_cond = FeatureConditionedSigmaCalibrator().fit(y, mu, sigma, x)
@@ -109,7 +108,6 @@ class MetricsTests(unittest.TestCase):
         calibrator = FeatureConditionedSigmaCalibrator().fit(y, mu, sigma, None)
 
         self.assertIsNone(calibrator.weights_)
-        # With no feature regression the multiplier is identity -> pure per-wavelength scale.
         calibrated = calibrator.transform(sigma, None)
         self.assertEqual(calibrated.shape, sigma.shape)
         self.assertTrue(np.all(calibrated > 0))
@@ -159,7 +157,6 @@ class ModelTests(unittest.TestCase):
     def test_factory_builds_every_sklearn_family_model(self):
         x, y = make_synthetic_regression(n_samples=40, n_targets=10)
         config = ModelConfig(n_components=3, calibrate_sigma=False)
-        # ngboost / lightgbm / xgboost are optional deps not installed here.
         optional = {"ngboost", "lightgbm", "xgboost", "br_lgbm_residual"}
         names = [name for name in ModelFactory.list_models() if name not in optional]
         self.assertIn("svr", names)
@@ -180,15 +177,12 @@ class ModelTests(unittest.TestCase):
             _resolve_device(True, "sklearn")
 
     def test_use_gpu_is_ignored_by_cpu_only_models(self):
-        # use_gpu must not break models that have no GPU backend.
         x, y = make_synthetic_regression(n_samples=24, n_targets=8)
         model = ModelFactory.create("ridge", ModelConfig(n_components=2, calibrate_sigma=False, use_gpu=True))
         model.fit(x, y)
         self.assertEqual(model.predict(x[:3]).mu.shape, (3, y.shape[1]))
 
     def test_predict_handles_estimator_that_swallows_return_std(self):
-        # Mimics LightGBM: predict accepts **kwargs and ignores return_std, returning
-        # a plain array. Unpacking that array used to raise "too many values to unpack".
         class KwargSwallowingRegressor:
             def fit(self, x, y):
                 self._mean = float(np.mean(y))
@@ -200,7 +194,7 @@ class ModelTests(unittest.TestCase):
         x, y = make_synthetic_regression(n_samples=30, n_targets=8)
         model = TargetPCARegressor(KwargSwallowingRegressor, ModelConfig(n_components=3, calibrate_sigma=False))
         model.fit(x[:24], y[:24], x_val=x[24:], y_val=y[24:])
-        prediction = model.predict(x[24:])  # must not raise
+        prediction = model.predict(x[24:])
         self.assertEqual(prediction.mu.shape, (6, y.shape[1]))
         self.assertTrue(np.all(prediction.sigma > 0))
 
@@ -214,12 +208,11 @@ class ModelTests(unittest.TestCase):
         prediction = model.predict(x[32:])
         self.assertTrue(np.all(np.isfinite(prediction.mu)))
         self.assertTrue(np.all(np.isfinite(prediction.sigma)))
-        # Predictions stay on the target scale instead of diverging.
         self.assertLess(float(np.abs(prediction.mu).mean()), 10 * float(np.abs(y).mean()))
 
     def test_model_families_cover_listed_models(self):
         flat = ModelFactory.list_models()
-        self.assertEqual(sorted(flat), sorted(set(flat)))  # no duplicates
+        self.assertEqual(sorted(flat), sorted(set(flat)))
         self.assertEqual(
             set(flat),
             {name for names in MODEL_FAMILIES.values() for name in names},
@@ -251,7 +244,6 @@ class ModelTests(unittest.TestCase):
         self.assertTrue(np.all(pred.sigma > 0))
 
     def test_mean_shifted_decomposition_identity(self):
-        # μ must equal depth μ (broadcast) + shape μ exactly.
         x, y = make_synthetic_regression(n_samples=36, n_targets=10)
         cfg = ModelConfig(n_components=3, calibrate_sigma=False)
         model = MeanShiftedRegressor(BayesianRidgePCARegressor(cfg), BayesianRidgePCARegressor(cfg))
@@ -260,7 +252,6 @@ class ModelTests(unittest.TestCase):
         d = model.depth_model.predict(x[28:]).mu
         s = model.shape_model.predict(x[28:]).mu
         np.testing.assert_allclose(combined.mu, d + s, rtol=1e-10)
-        # depth target is the per-row mean -> depth μ ~ scale of y mean, shape μ ~ 0-centred
         self.assertEqual(d.shape, (8, 1))
 
     def test_mean_shifted_pickle_roundtrip(self):

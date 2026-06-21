@@ -64,7 +64,6 @@ class BenchmarkTests(unittest.TestCase):
         )
         by_name = {row.model_name: row for row in result.rows}
         self.assertEqual(by_name["ridge"].status, "ok")
-        # lightgbm is not installed in the test environment -> skipped, not error.
         self.assertEqual(by_name["lightgbm"].status, "skipped")
 
     def test_to_frame_and_best_select_lowest_nll(self):

@@ -50,7 +50,7 @@ class ModelConfig:
     calibrate_sigma: bool = True
     sigma_per_target: bool = False
     sigma_feature_conditioned: bool = False
-    use_gpu: bool = False  # only LightGBM/XGBoost consult this; other models ignore it
+    use_gpu: bool = False
     random_state: int = 42
     model_params: dict[str, Any] = field(default_factory=dict)
 
@@ -65,5 +65,5 @@ class DeepModelConfig:
     random_state: int = 42
     device: str = "auto"
     sigma_floor: float = 1e-6
-    n_components: int | None = None  # target PCA; None = predict all targets directly
-    patience: int = 20  # early stopping patience (epochs without val improvement); 0 = disabled
+    n_components: int | None = None
+    patience: int = 20

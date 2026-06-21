@@ -10,7 +10,7 @@ from preprocessing import (
     DetectorCalibrator,
     LightCurveExtractor,
     LightCurveTransformer,
-    TransitBoundaryDetector,
+    TransitBoundaryDetector
 )
 
 
@@ -87,12 +87,6 @@ class ArielPreprocessFeaturePipeline:
         )
 
     def processed_light_curves(self, observation, *, airs_adc=(1.0, 0.0), fgs_adc=(1.0, 0.0)):
-        """Return the normalised, detrended ``LightCurves`` for one observation.
-
-        Exposes the per-observation light curves (AIRS ``[time, wavelength]`` and
-        FGS ``[time]``) that deep sequence models consume, without building the
-        tabular feature dict.
-        """
         curves, _bounds, _metrics = self._process_to_light_curves(
             airs_signal=observation.airs_signal,
             fgs_signal=observation.fgs_signal,

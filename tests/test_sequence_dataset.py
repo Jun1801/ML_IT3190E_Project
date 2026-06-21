@@ -24,7 +24,7 @@ class FakeRepository:
         rng = np.random.default_rng(int(planet_id))
         airs = 1.0 + 0.01 * rng.normal(size=(self.n_time, 2, self.n_wavelength))
         fgs = 1.0 + 0.01 * rng.normal(size=(self.n_time, 2, 2))
-        airs[15:25] *= 0.99  # a shallow transit dip
+        airs[15:25] *= 0.99
         fgs[15:25] *= 0.99
         return RawObservation(
             planet_id=planet_id,
@@ -52,8 +52,8 @@ class SequenceDatasetTests(unittest.TestCase):
             FakeRepository(), make_pipeline(), "train", wavelength_bins=8
         )
         self.assertEqual(dataset.x.ndim, 3)
-        self.assertEqual(dataset.x.shape[0], 3)          # 3 planets
-        self.assertEqual(dataset.x.shape[2], 8 + 1)      # 8 AIRS bins + 1 FGS channel
+        self.assertEqual(dataset.x.shape[0], 3)
+        self.assertEqual(dataset.x.shape[2], 8 + 1)
         self.assertEqual(dataset.planet_ids, ["1", "2", "3"])
         self.assertFalse(np.isnan(dataset.x).any())
 

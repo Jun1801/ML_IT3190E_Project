@@ -1,12 +1,3 @@
-"""Build fixed-shape light-curve sequence tensors for deep sequence models.
-
-Deep models in :mod:`deep_models` consume ``X`` of shape
-``[samples, time, channels]``. This module turns raw observations into that
-tensor by reusing the calibration / extraction / detrending pipeline and
-stacking the FGS white-light curve with the (optionally wavelength-binned)
-AIRS light curves as channels.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,13 +10,12 @@ from pipeline import ArielPreprocessFeaturePipeline
 
 @dataclass(frozen=True)
 class SequenceDataset:
-    x: np.ndarray            # [n_samples, time, channels]
+    x: np.ndarray
     planet_ids: list[str]
     failures: list[str]
 
 
 def _bin_columns(matrix: np.ndarray, n_bins: int) -> np.ndarray:
-    """Mean-pool the column (wavelength) axis of ``[time, width]`` into ``n_bins``."""
     width = matrix.shape[1]
     if n_bins >= width:
         return matrix
@@ -34,9 +24,8 @@ def _bin_columns(matrix: np.ndarray, n_bins: int) -> np.ndarray:
 
 
 def observation_sequence(curves, *, wavelength_bins: int | None) -> np.ndarray:
-    """Stack one observation's curves into ``[time, channels]`` (FGS + AIRS)."""
-    airs = np.nan_to_num(np.asarray(curves.airs, dtype=float))  # [time, wavelength]
-    fgs = np.nan_to_num(np.asarray(curves.fgs, dtype=float)).reshape(-1, 1)  # [time, 1]
+    airs = np.nan_to_num(np.asarray(curves.airs, dtype=float))
+    fgs = np.nan_to_num(np.asarray(curves.fgs, dtype=float)).reshape(-1, 1)
     if wavelength_bins is not None:
         airs = _bin_columns(airs, wavelength_bins)
     return np.concatenate([fgs, airs], axis=1)
@@ -53,12 +42,6 @@ def build_sequence_dataset(
     observation_id: int = 0,
     on_error: str = "skip",
 ) -> SequenceDataset:
-    """Build one sequence per planet (a single observation) aligned to planet_ids.
-
-    All sequences are trimmed to the shortest common time length so they stack
-    into a single ``[n, time, channels]`` array. Set ``wavelength_bins=None`` to
-    keep every AIRS wavelength as a channel.
-    """
     selected = planet_ids or repository.list_planet_ids(split)
     if limit is not None:
         selected = selected[:limit]
@@ -76,7 +59,7 @@ def build_sequence_dataset(
             )
             sequences.append(observation_sequence(curves, wavelength_bins=wavelength_bins))
             kept_ids.append(str(planet_id))
-        except Exception as exc:  # noqa: BLE001 - skip a bad planet without aborting the build
+        except Exception as exc:
             message = f"{split}/{planet_id}: {exc}"
             if on_error == "skip":
                 failures.append(message)

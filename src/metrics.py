@@ -17,10 +17,6 @@ def gaussian_log_likelihood(
     *,
     sigma_floor: float = 1e-15,
 ) -> np.ndarray:
-    """Per-element Gaussian log-likelihood (matches ``scipy.stats.norm.logpdf``).
-
-    ``GLL = -1/2 (log(2*pi) + log(sigma**2) + ((y - mu) / sigma)**2)``
-    """
     y_true = np.asarray(y_true, dtype=float)
     mu = np.asarray(mu, dtype=float)
     sigma = np.maximum(np.asarray(sigma, dtype=float), sigma_floor)
@@ -28,12 +24,6 @@ def gaussian_log_likelihood(
 
 
 def ariel_naive_reference(y_train: np.ndarray) -> tuple[float, float]:
-    """Naive baseline statistics used by the official metric.
-
-    Returns the global mean and standard deviation of the training spectra,
-    which define the reference (lower-bound) model that predicts a constant
-    mean with constant uncertainty everywhere.
-    """
     y_train = np.asarray(y_train, dtype=float)
     return float(np.mean(y_train)), float(np.std(y_train))
 
@@ -48,18 +38,6 @@ def ariel_gll_score(
     sigma_true: float = 1e-5,
     sigma_floor: float = 1e-15,
 ) -> float:
-    """Official Ariel Data Challenge 2025 normalized GLL score, in ``[0, 1]``.
-
-    ``score = (GLL_pred - GLL_ref) / (GLL_ideal - GLL_ref)`` clipped to ``[0, 1]``:
-
-    - ``GLL_pred``  — log-likelihood of the ground truth under ``(mu, sigma)``.
-    - ``GLL_ideal`` — perfect prediction ``mu == y_true`` with ``sigma_true``
-      (the competition uses 10 ppm, i.e. ``1e-5``).
-    - ``GLL_ref``   — naive model predicting ``naive_mean`` with ``naive_sigma``
-      everywhere (derived from the training spectra).
-
-    Higher is better: ``0`` matches the naive baseline, ``1`` the ideal model.
-    """
     y_true = np.asarray(y_true, dtype=float)
     gll_pred = float(np.sum(gaussian_log_likelihood(y_true, mu, sigma, sigma_floor=sigma_floor)))
     gll_ideal = float(
@@ -93,16 +71,6 @@ def rmse_per_target(y_true: np.ndarray, mu: np.ndarray, floor: float = 1e-8) -> 
 
 
 class SigmaCalibrator:
-    """Multiplicative sigma calibration that maximises the Gaussian log-likelihood.
-
-    With ``per_target=False`` (default) a single scalar scale is fitted over all
-    values (legacy behaviour). With ``per_target=True`` an independent scale
-    ``s_j`` is fitted per target column: since the GLL is additive over elements
-    and ``s_j`` only touches column ``j``, the GLL-optimal scale has the closed
-    form ``s_j = sqrt(mean_i (residual_ij / sigma_ij)**2)`` (the RMS of the
-    normalised residuals), which this computes directly.
-    """
-
     def __init__(
         self,
         *,
@@ -124,7 +92,7 @@ class SigmaCalibrator:
         y_true: np.ndarray,
         mu: np.ndarray,
         sigma: np.ndarray,
-        x: np.ndarray | None = None,  # ignored; kept for a uniform calibrator interface
+        x: np.ndarray | None = None,
     ) -> "SigmaCalibrator":
         sigma = np.maximum(np.asarray(sigma, dtype=float), self.sigma_floor)
         residual = np.asarray(y_true, dtype=float) - np.asarray(mu, dtype=float)
@@ -147,7 +115,6 @@ class SigmaCalibrator:
     def _fit_per_target(self, residual: np.ndarray, sigma: np.ndarray) -> np.ndarray:
         normalized_mse = np.mean((residual / sigma) ** 2, axis=0)
         scale = np.sqrt(normalized_mse)
-        # Degenerate columns (zero/non-finite residuals) keep an identity scale.
         scale = np.where(np.isfinite(scale) & (scale > 0.0), scale, 1.0)
         return np.clip(scale, self.lower, self.upper)
 
@@ -160,22 +127,6 @@ class SigmaCalibrator:
 
 
 class FeatureConditionedSigmaCalibrator:
-    """PHC step 2 — heteroscedastic, feature-conditioned sigma calibration.
-
-    ``sigma_calibrated_ij = s_j * m_i * sigma_ij`` with two GLL-optimal stages:
-
-    1. **Per-wavelength** scale ``s_j = sqrt(mean_i (residual_ij/sigma_ij)**2)``
-       (RMS over rows) — the closed-form GLL-optimal scale per column.
-    2. **Per-observation** multiplier: the GLL-optimal single multiplier for row
-       ``i`` (holding ``s_j`` fixed) is ``t_i = sqrt(mean_j (residual_ij/(s_j*sigma_ij))**2)``
-       (RMS over columns). We regress ``log t_i`` on the input features via ridge
-       regression, so ``m_i = exp(features_i . w)`` lets noisier observations get
-       wider intervals at prediction time.
-
-    Falls back to the per-wavelength scale alone (``m_i = 1``) when no features
-    are supplied or there are too few rows to fit a stable regression.
-    """
-
     def __init__(
         self,
         *,
@@ -193,7 +144,7 @@ class FeatureConditionedSigmaCalibrator:
         self.multiplier_clip = multiplier_clip
         self.min_rows = min_rows
         self.scale_per_target_: np.ndarray | None = None
-        self.weights_: np.ndarray | None = None  # ridge weights (intercept first)
+        self.weights_: np.ndarray | None = None
 
     def fit(
         self,
@@ -205,13 +156,11 @@ class FeatureConditionedSigmaCalibrator:
         sigma = np.maximum(np.asarray(sigma, dtype=float), self.sigma_floor)
         residual = np.asarray(y_true, dtype=float) - np.asarray(mu, dtype=float)
 
-        # Stage 1 — per-wavelength scale (RMS over rows).
         nmse_col = np.mean((residual / sigma) ** 2, axis=0)
         scale = np.sqrt(nmse_col)
         scale = np.where(np.isfinite(scale) & (scale > 0.0), scale, 1.0)
         self.scale_per_target_ = np.clip(scale, self.lower, self.upper)
 
-        # Stage 2 — per-row optimal multiplier, then regress on features.
         self.weights_ = None
         if x is not None:
             x = np.asarray(x, dtype=float)
@@ -228,7 +177,7 @@ class FeatureConditionedSigmaCalibrator:
         target = np.log(np.clip(t, 1e-6, None))
         gram = design.T @ design
         penalty = self.ridge_lambda * np.eye(n_features + 1)
-        penalty[0, 0] = 0.0  # do not regularise the intercept
+        penalty[0, 0] = 0.0
         try:
             return np.linalg.solve(gram + penalty, design.T @ target)
         except np.linalg.LinAlgError:

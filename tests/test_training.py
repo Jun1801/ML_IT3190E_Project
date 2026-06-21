@@ -117,7 +117,6 @@ class TrainingTests(unittest.TestCase):
             selection_metric="ariel_gll_score",
         )
         scores = [c.mean_metrics["ariel_gll_score"] for c in result.candidates]
-        # Higher-is-better metric: the best candidate must be the maximum.
         self.assertAlmostEqual(
             result.best_candidate.mean_metrics["ariel_gll_score"], max(scores)
         )
@@ -137,15 +136,12 @@ class TrainingTests(unittest.TestCase):
         self.assertAlmostEqual(result.best_candidate.mean_metrics["gaussian_nll"], min(nll))
 
     def test_search_n_components_matches_full_cv(self):
-        # The fast "fit once at k_max, truncate" sweep must equal running full CV at each k.
-        # Use noisy targets + groups so residual_rmse is non-trivial — this exercises the
-        # exact calibrator fit order that TargetPCARegressor.fit uses.
         rng = np.random.default_rng(3)
         n, d, m = 80, 6, 24
         xm = rng.normal(size=(n, d))
         wl = np.linspace(0, 1, m)
         y = 0.01 + (xm[:, :2] @ np.vstack([np.sin(2 * np.pi * wl), np.cos(2 * np.pi * wl)])) * 0.003
-        y = y + rng.normal(size=(n, m)) * 1e-3  # meaningful noise -> non-zero residual_rmse
+        y = y + rng.normal(size=(n, m)) * 1e-3
         groups = np.repeat(np.arange(n // 2), 2)
         grid = [4, 8, 12]
         base = ModelConfig(calibrate_sigma=True, sigma_per_target=True, random_state=42)
@@ -190,7 +186,6 @@ class TrainingTests(unittest.TestCase):
             validation_fraction=0.3,
         )
 
-        # Weights form a valid distribution and follow the validation scores.
         self.assertAlmostEqual(float(np.sum(result.weights)), 1.0)
         self.assertEqual(int(np.argmax(result.weights)), int(np.argmax(result.val_scores)))
 

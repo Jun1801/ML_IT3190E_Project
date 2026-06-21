@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(git -C /Users/luuvanson/Desktop/ML_IT3190E_Project status)",
-      "Bash(git -C /Users/luuvanson/Desktop/ML_IT3190E_Project add -u)"
-    ]
-  }
-}

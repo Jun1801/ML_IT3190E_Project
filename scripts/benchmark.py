@@ -63,8 +63,6 @@ def main() -> None:
     from config import ModelConfig
     from dataset_builder import align_features_and_targets
 
-    # The sweep deliberately fits many estimators (GPR, MLP, …) whose
-    # convergence warnings would otherwise drown out the comparison table.
     warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
     features = pd.read_csv(args.features)

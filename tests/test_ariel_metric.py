@@ -21,7 +21,6 @@ class ArielMetricTests(unittest.TestCase):
         rng = np.random.default_rng(0)
         y = 0.01 + 0.001 * rng.normal(size=(5, 20))
         naive_mean, naive_sigma = ariel_naive_reference(y)
-        # Perfect mean with the ideal 10 ppm sigma -> score at the upper bound.
         score = ariel_gll_score(
             y, y.copy(), np.full_like(y, 1e-5),
             naive_mean=naive_mean, naive_sigma=naive_sigma,
@@ -32,7 +31,6 @@ class ArielMetricTests(unittest.TestCase):
         rng = np.random.default_rng(1)
         y = 0.01 + 0.001 * rng.normal(size=(5, 20))
         naive_mean, naive_sigma = ariel_naive_reference(y)
-        # Predicting the naive baseline itself -> score at the lower bound.
         score = ariel_gll_score(
             y,
             np.full_like(y, naive_mean),

@@ -33,7 +33,6 @@ class TargetPCARegressor:
         self.sigma_calibrator = self._build_calibrator()
 
     def _build_calibrator(self):
-        """Create a fresh sigma calibrator matching the current config."""
         if self.config.sigma_feature_conditioned:
             return FeatureConditionedSigmaCalibrator(sigma_floor=self.config.sigma_floor)
         return SigmaCalibrator(
@@ -43,9 +42,6 @@ class TargetPCARegressor:
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        # Local lambdas used to build sklearn estimators are not pickleable.
-        # Fitted models are stored in self.models, so the factory is not needed
-        # for saved inference artifacts.
         state["estimator_factory"] = None
         return state
 
@@ -105,12 +101,6 @@ class TargetPCARegressor:
         return ModelPrediction(mu=mu, sigma=sigma)
 
     def predict_pca_space(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Return (z_mu, z_std, x_scaled) over all fitted PCA components.
-
-        Lets a caller reconstruct predictions for any k <= n_components by
-        truncating the component columns (the PCA axes are nested), avoiding a
-        full refit per n_components during search.
-        """
         self._require_fitted()
         x_scaled = self._transform_x(np.asarray(x, dtype=float))
         z_mu, z_std = self._predict_pca_space(x_scaled)
@@ -126,10 +116,6 @@ class TargetPCARegressor:
         return np.column_stack(mus), np.column_stack(stds)
 
     def _predict_one_model(self, model: RegressorMixin, x_scaled: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        # Probabilistic estimators (BayesianRidge/ARD/GPR) return a (mu, std) tuple.
-        # Estimators that accept **kwargs (e.g. LightGBM) silently ignore return_std
-        # and return a plain array, so we must check the result type rather than rely
-        # on a TypeError — unpacking that array would raise "too many values to unpack".
         try:
             result = model.predict(x_scaled, return_std=True)
         except TypeError:
@@ -215,16 +201,6 @@ class ResidualCorrectedRegressor:
 
 
 class MeanShiftedRegressor:
-    """Split the spectrum into per-planet mean depth + wavelength shape, modelled separately.
-
-    The target is nearly rank-1: each planet's spectrum ≈ a constant transit depth
-    plus a tiny wavelength-dependent shape (the atmospheric signal). This wrapper
-    trains a ``depth_model`` on the per-row mean ``d_i = mean_λ y_iλ`` and a
-    ``shape_model`` on the mean-removed residual ``r_iλ = y_iλ - d_i`` so the shape
-    model focuses purely on the science signal instead of the dominant offset.
-    Prediction: ``μ = depth_μ + shape_μ``; ``σ = sqrt(depth_σ² + shape_σ²)``.
-    """
-
     def __init__(
         self,
         depth_model: TargetPCARegressor,
@@ -239,7 +215,7 @@ class MeanShiftedRegressor:
     @staticmethod
     def _split(y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         y = np.asarray(y, dtype=float)
-        depth = y.mean(axis=1, keepdims=True)  # (n, 1)
+        depth = y.mean(axis=1, keepdims=True)
         return depth, y - depth
 
     def fit(
@@ -261,7 +237,7 @@ class MeanShiftedRegressor:
     def predict(self, x: np.ndarray) -> ModelPrediction:
         depth = self.depth_model.predict(x)
         shape = self.shape_model.predict(x)
-        mu = depth.mu + shape.mu  # (n,1) broadcasts over wavelengths
+        mu = depth.mu + shape.mu
         sigma = np.sqrt(depth.sigma**2 + shape.sigma**2)
         return ModelPrediction(mu=mu, sigma=np.maximum(sigma, self.sigma_floor))
 

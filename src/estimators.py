@@ -21,25 +21,18 @@ from sklearn.svm import SVR
 from config import ModelConfig
 from models import (
     MeanShiftedRegressor,
-    ModelPrediction,
     ResidualCorrectedRegressor,
-    TargetPCARegressor,
-    WeightedEnsembleRegressor,
+    TargetPCARegressor
 )
 
 
 def _resolve_device(use_gpu: bool, framework: str) -> str:
-    """Map ``ModelConfig.use_gpu`` to the device string of a GBM framework."""
     if framework == "xgboost":
         return "cuda" if use_gpu else "cpu"
     if framework == "lightgbm":
         return "gpu" if use_gpu else "cpu"
     raise ValueError(f"Unknown GBM framework: {framework}")
 
-
-# ---------------------------------------------------------------------------
-# Bayesian family
-# ---------------------------------------------------------------------------
 
 class BayesianRidgePCARegressor(TargetPCARegressor):
     def __init__(self, config: ModelConfig | None = None, *, max_iter: int = 1000, tol: float = 1e-6) -> None:
@@ -50,8 +43,6 @@ class BayesianRidgePCARegressor(TargetPCARegressor):
 
 
 class ARDPCARegressor(TargetPCARegressor):
-    """Automatic Relevance Determination — Bayesian sibling of BayesianRidge."""
-
     def __init__(self, config: ModelConfig | None = None, *, max_iter: int = 300, tol: float = 1e-3) -> None:
         super().__init__(lambda: ARDRegression(max_iter=max_iter, tol=tol), config=config)
 
@@ -82,8 +73,6 @@ class GaussianProcessPCARegressor(TargetPCARegressor):
 
 
 class NGBoostPCARegressor(TargetPCARegressor):
-    """Natural Gradient Boosting — produces a predictive distribution per component."""
-
     def __init__(
         self,
         config: ModelConfig | None = None,
@@ -117,10 +106,6 @@ class NGBoostPCARegressor(TargetPCARegressor):
         return mu, std
 
 
-# ---------------------------------------------------------------------------
-# Linear family
-# ---------------------------------------------------------------------------
-
 class RidgePCARegressor(TargetPCARegressor):
     def __init__(self, config: ModelConfig | None = None, *, alpha: float = 1.0) -> None:
         super().__init__(lambda: Ridge(alpha=alpha), config=config)
@@ -145,10 +130,6 @@ class ElasticNetPCARegressor(TargetPCARegressor):
             config=config,
         )
 
-
-# ---------------------------------------------------------------------------
-# Kernel / SVM family
-# ---------------------------------------------------------------------------
 
 class KernelRidgePCARegressor(TargetPCARegressor):
     def __init__(
@@ -181,10 +162,6 @@ class SVRPCARegressor(TargetPCARegressor):
         )
 
 
-# ---------------------------------------------------------------------------
-# Neighbors family
-# ---------------------------------------------------------------------------
-
 class KNNPCARegressor(TargetPCARegressor):
     def __init__(
         self,
@@ -198,10 +175,6 @@ class KNNPCARegressor(TargetPCARegressor):
             config=config,
         )
 
-
-# ---------------------------------------------------------------------------
-# Tree ensemble family
-# ---------------------------------------------------------------------------
 
 class RandomForestPCARegressor(TargetPCARegressor):
     def __init__(
@@ -246,8 +219,6 @@ class ExtraTreesPCARegressor(TargetPCARegressor):
 
 
 class BoostingPCARegressor(TargetPCARegressor):
-    """Sklearn boosting baseline used when LightGBM/XGBoost are not installed."""
-
     def __init__(
         self,
         config: ModelConfig | None = None,
@@ -402,10 +373,6 @@ class XGBoostPCARegressor(TargetPCARegressor):
         )
 
 
-# ---------------------------------------------------------------------------
-# Neural (shallow) family
-# ---------------------------------------------------------------------------
-
 class MLPPCARegressor(TargetPCARegressor):
     def __init__(
         self,
@@ -423,9 +390,6 @@ class MLPPCARegressor(TargetPCARegressor):
         )
 
     def _create_estimator(self, cfg, hidden_layer_sizes, alpha, max_iter, learning_rate_init):
-        # Each PCA component target has its own (small, uncentred) scale; without
-        # standardising it the MLP diverges on little data. Wrap it in a target
-        # scaler and use early stopping + stronger L2 so it stays well-behaved.
         mlp = MLPRegressor(
             hidden_layer_sizes=hidden_layer_sizes,
             alpha=alpha,
@@ -438,12 +402,6 @@ class MLPPCARegressor(TargetPCARegressor):
         return TransformedTargetRegressor(regressor=mlp, transformer=StandardScaler())
 
 
-# ---------------------------------------------------------------------------
-# Model registry
-# ---------------------------------------------------------------------------
-
-# Canonical model name → family grouping. Used for organised comparison
-# studies and report tables. Each canonical name is creatable via ModelFactory.
 MODEL_FAMILIES: dict[str, tuple[str, ...]] = {
     "linear": ("ridge", "lasso", "elastic_net"),
     "bayesian": ("bayesian_ridge", "ard", "gaussian_process", "ngboost"),
@@ -466,18 +424,16 @@ MODEL_FAMILIES: dict[str, tuple[str, ...]] = {
 class ModelFactory:
     @staticmethod
     def families() -> dict[str, tuple[str, ...]]:
-        """Return the canonical model name grouping by family."""
         return dict(MODEL_FAMILIES)
 
     @staticmethod
     def list_models() -> list[str]:
-        """Flat list of every canonical model name across all families."""
         return [name for names in MODEL_FAMILIES.values() for name in names]
 
     @staticmethod
     def create(name: str, config: ModelConfig | None = None) -> "TargetPCARegressor | ResidualCorrectedRegressor":
         cfg = config or ModelConfig()
-        params = cfg.model_params  # forwarded to the underlying estimator constructor
+        params = cfg.model_params
         normalized = name.strip().lower().replace("-", "_")
         if normalized in {"bayesian_ridge", "br"}:
             return BayesianRidgePCARegressor(cfg, **params)
@@ -536,8 +492,8 @@ class ModelFactory:
             if base.startswith("ms_") or base in {"mean_shift", ""}:
                 raise ValueError(f"Invalid mean_shift base: {base}")
             return MeanShiftedRegressor(
-                ModelFactory.create(base, cfg),   # depth model (target auto-caps to 1 component)
-                ModelFactory.create(base, cfg),   # shape model
+                ModelFactory.create(base, cfg),
+                ModelFactory.create(base, cfg),
                 sigma_floor=cfg.sigma_floor,
             )
         raise ValueError(f"Unknown model name: {name}")

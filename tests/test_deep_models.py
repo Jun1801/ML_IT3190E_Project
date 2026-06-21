@@ -36,10 +36,8 @@ class DeepModelTests(unittest.TestCase):
         )
         model.fit(x, y)
 
-        # PCA fitted; internal targets dimension is n_comp
         self.assertIsNotNone(model.pca_)
         self.assertEqual(model.n_targets_, n_comp)
-        # Output is still inverse-transformed back to full target space
         pred = model.predict(x[:3])
         self.assertEqual(pred.mu.shape, (3, y.shape[1]))
         self.assertEqual(pred.sigma.shape, (3, y.shape[1]))
@@ -62,7 +60,6 @@ class DeepModelTests(unittest.TestCase):
         )
         model_cal.fit(x_tr, y_tr, x_val=x_va, y_val=y_va)
 
-        # With calibration the calibrator scale should differ from default 1.0
         self.assertNotEqual(model_cal.sigma_calibrator.scale_, 1.0)
 
     def test_save_load_weights_with_pca_reproduces_predictions(self):
@@ -75,18 +72,17 @@ class DeepModelTests(unittest.TestCase):
         cfg = DeepModelConfig(epochs=2, batch_size=4, hidden_size=16, device="cpu", n_components=4)
         model = CNN1DRegressor(cfg)
         model.fit(x, y)
-        ref = model._predict_uncalibrated(x[:3])  # uncalibrated -> independent of saved calibrator
+        ref = model._predict_uncalibrated(x[:3])
 
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "w.pt"
             model.save_weights(p)
-            # Reload WITHOUT fit: pass y_train so the (deterministic) target PCA is refit.
             loaded = CNN1DRegressor(cfg).load_weights(p, n_time=10, n_channels=3, y_train=y)
 
         self.assertIsNotNone(loaded.pca_)
         self.assertEqual(loaded.n_targets_, 4)
         out = loaded._predict_uncalibrated(x[:3])
-        self.assertEqual(out.mu.shape, (3, y.shape[1]))         # back in full 10-dim target space
+        self.assertEqual(out.mu.shape, (3, y.shape[1]))
         np.testing.assert_allclose(out.mu, ref.mu, rtol=1e-5, atol=1e-6)
 
     def test_all_architectures_smoke(self):

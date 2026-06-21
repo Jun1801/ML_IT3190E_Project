@@ -107,8 +107,7 @@ def main() -> None:
 
     model_params_grid = None
     if args.model_params_grid:
-        import json as _json
-        model_params_grid = _json.loads(args.model_params_grid)
+        model_params_grid = json.loads(args.model_params_grid)
 
     if args.search:
         search = hyperparameter_search(
