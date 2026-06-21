@@ -83,17 +83,17 @@
 \tableofcontents
 \clearpage
 
-\section{Abstract}
+\section*{Abstract}
 
-Recovering an exoplanet's atmospheric transmission spectrum - along with calibrated per-wavelength uncertainties - from raw telescope detector data is a challenging probabilistic regression problem: the transit signal is faint ($\sim$0.1-2\% of stellar flux), instrument noise is heteroscedastic across wavelengths, and the official evaluation metric (normalised Gaussian Log-Likelihood, GLL) jointly penalises prediction error and mis-calibrated confidence. We address this via the \href{https://www.kaggle.com/competitions/ariel-data-challenge-2025}{Ariel Data Challenge 2025} (NeurIPS), developing a physics-informed end-to-end pipeline and benchmarking 22 models across 7 families under identical cross-validation folds; we additionally formalise \textbf{PHC} (Physics-conditioned Heteroscedastic Calibration), a closed-form per-wavelength GLL-optimal uncertainty rescaling, and evaluate six deep sequence architectures as baselines. Under a protocol-synchronised comparison, tree ensembles achieve the best GLL score (Extra Trees 0.287, Random Forest 0.273), outperforming deep CNN/Transformer ($\sim$0.22); critically, uncertainty quality - not point-prediction accuracy - determines success, as XGBoost's best-RMSE model scores GLL\,$=$\,0 due to uninformative uncertainty, and PHC proves empirically marginal since intrinsic model uncertainty is already adequate. These results establish that physics-based noise features and well-calibrated probabilistic outputs are the dominant levers for this task, and that valid ML-vs-Deep comparisons require strict protocol synchronisation.
+Recovering an exoplanet's atmospheric transmission spectrum - along with calibrated per-wavelength uncertainties - from raw telescope detector data is a challenging probabilistic regression problem: the transit signal is faint ($\sim$0.1-2\% of stellar flux), instrument noise is heteroscedastic across wavelengths, and the official evaluation metric (normalised Gaussian Log-Likelihood, GLL) jointly penalises prediction error and mis-calibrated confidence. We address this via the \href{https://www.kaggle.com/competitions/ariel-data-challenge-2025}{Ariel Data Challenge 2025} (NeurIPS), developing a physics-informed end-to-end pipeline and benchmarking 22 models across 7 families under identical cross-validation folds; we additionally formalise PHC (Physics-conditioned Heteroscedastic Calibration), a closed-form per-wavelength GLL-optimal uncertainty rescaling, and evaluate six deep sequence architectures as baselines. Under a protocol-synchronised comparison, tree ensembles achieve the best GLL score (Extra Trees 0.287, Random Forest 0.273), outperforming deep CNN/Transformer ($\sim$0.22). Critically, uncertainty quality - not point-prediction accuracy - determines success: in cross-validation, XGBoost achieves a leading point-prediction RMSE (0.00237) but its GLL (0.185) is significantly outperformed by Extra Trees (0.236) due to uncertainty calibration, and PHC proves empirically marginal since intrinsic model uncertainty is already adequate. These results establish that physics-based noise features and well-calibrated probabilistic outputs are the dominant levers for this task, and that valid ML-vs-Deep comparisons require strict protocol synchronisation.
 
 \section{Introduction}
 
 \subsection{Background and Motivation}
 
-Transit spectroscopy is the primary technique for characterising exoplanetary atmospheres remotely: when a planet crosses in front of its host star, its atmosphere selectively absorbs starlight at specific wavelengths, imprinting a \textbf{wavelength-dependent transmission spectrum} onto the observed stellar flux. Decoding this spectrum reveals atmospheric composition and structure, but the signal is extremely faint - typically $\sim$0.1-2\% of stellar flux - and buried in instrumental and photon noise, making automated, uncertainty-aware retrieval a fundamental open challenge.
+Transit spectroscopy is the primary technique for characterising exoplanetary atmospheres remotely: when a planet crosses in front of its host star, its atmosphere selectively absorbs starlight at specific wavelengths, imprinting a wavelength-dependent transmission spectrum onto the observed stellar flux. Decoding this spectrum reveals atmospheric composition and structure, but the signal is extremely faint - typically $\sim$0.1-2\% of stellar flux - and buried in instrumental and photon noise, making automated, uncertainty-aware retrieval a fundamental open challenge.
 
-The ESA \emph{Ariel} mission addresses this at survey scale, targeting $\sim$1,000 exoplanets with two dedicated instruments: the \textbf{FGS1} visible-light photometer and the \textbf{AIRS-CH0} infrared spectrometer (283 wavelength channels, 1.95-3.90\,$\mu$m). The \href{https://www.kaggle.com/competitions/ariel-data-challenge-2025}{Ariel Data Challenge 2025} (NeurIPS) operationalises this retrieval problem as a supervised learning benchmark on simulated Ariel-like detector data. Crucially, the competition grades a \textbf{full predictive distribution} over each wavelength via a normalised \textbf{Gaussian Log-Likelihood (GLL)}, penalising both inaccurate means and mis-calibrated uncertainties equally. A model must therefore output a mean spectrum \textbf{and} a credible per-wavelength uncertainty - his is a genuine \emph{probabilistic regression} task where uncertainty quantification is a first-class objective, not an afterthought.
+The ESA \emph{Ariel} mission addresses this at survey scale, targeting $\sim$1,000 exoplanets with two dedicated instruments: the FGS1 visible-light photometer and the AIRS-CH0 infrared spectrometer (283 wavelength channels, 1.95-3.90\,$\mu$m). The \href{https://www.kaggle.com/competitions/ariel-data-challenge-2025}{Ariel Data Challenge 2025} (NeurIPS) operationalises this retrieval problem as a supervised learning benchmark on simulated Ariel-like detector data. Crucially, the competition grades a full predictive distribution over each wavelength via a normalised Gaussian Log-Likelihood (GLL), penalising both inaccurate means and mis-calibrated uncertainties equally. A model must therefore output a mean spectrum and a credible per-wavelength uncertainty - this is a genuine \emph{probabilistic regression} task where uncertainty quantification is a first-class objective, not an afterthought.
 
 \textbf{Task.} Given noisy detector signals for a planet ($\sim$1,100 training planets), predict 283 spectral values $\mu_\lambda \approx (R_p/R_s)^2$ and 283 per-wavelength uncertainties $\sigma_\lambda$.
 
@@ -104,14 +104,14 @@ The ESA \emph{Ariel} mission addresses this at survey scale, targeting $\sim$1,0
 
 \item \textbf{Systematic 22-model benchmark.} Seven model families (linear, Bayesian, kernel/SVM, neighbours, tree ensembles, shallow neural, deep sequence) evaluated on the official GLL metric under identical GroupKFold cross-validation folds, enabling a fair, metric-faithful comparison.
 
-\item \textbf{PHC uncertainty-calibration framework.} Physics-conditioned Heteroscedastic Calibration, with a closed-form per-wavelength GLL-optimal scale derived analytically. PHC standardises $\sigma$ across model families for the fair comparison in \S6.6; its empirical effect on the score is reported honestly as a \textbf{negative result}.
+\item \textbf{PHC uncertainty-calibration framework.} Physics-conditioned Heteroscedastic Calibration, with a closed-form per-wavelength GLL-optimal scale derived analytically. PHC standardises $\sigma$ across model families for the fair comparison in \S6.6; its empirical effect on the score is reported honestly as a negative result.
 
 \item \textbf{Deep sequence baselines.} Six architectures (CNN1D, TCN, LSTM, GRU, Transformer, Autoencoder+MLP) trained end-to-end on calibrated light curves, with a $(\mu, \log\sigma)$ output head and Gaussian NLL loss.
 
 \item \textbf{Protocol-synchronised ML-vs-Deep comparison.} Both model classes evaluated on the same held-out planets with the same PHC calibration and the same naive reference - the only valid basis for an ML-vs-Deep claim. Negative results (PHC marginal gain, mean/shape decomposition failure) are reported in full.
 \end{enumerate}
 
-\textit{Note on emphasis.} The primary contributions are the \textbf{systematic benchmark}, the \textbf{protocol-synchronised comparison}, and the \textbf{``uncertainty quality gates the score''} finding. PHC is a theoretically grounded analysis tool; it does not improve the score on this dataset, and we argue that reporting this honestly is itself a methodological contribution.
+\textit{Note on emphasis.} The primary contributions are the systematic benchmark, the protocol-synchronised comparison, and the ``uncertainty quality gates the score'' finding. PHC is a theoretically grounded analysis tool; it does not improve the score on this dataset, and we argue that reporting this honestly is itself a methodological contribution.
 \section{Problem Formulation}
 
 \subsection{Inputs and Outputs}
@@ -140,7 +140,7 @@ Raw observations are stored as parquet files under \texttt{train/} and \texttt{t
 
 \textbf{Output.} For each of the $\sim$1,100 training planets, predict $\boldsymbol{\mu} \in \mathbb{R}^{283}$ (mean transmission spectrum) and $\boldsymbol{\sigma} \in \mathbb{R}^{283}$ (per-wavelength uncertainty), where $\mu_\lambda \approx (R_p/R_s)^2$ is the squared planet-to-star radius ratio at wavelength $\lambda$.
 
-\subsection{Evaluation Metric - Normalized Gaussian Log-Likelihood}
+\subsection{Evaluation Metric - Normalised Gaussian Log-Likelihood}
 
 Each prediction $(\mu_\lambda, \sigma_\lambda)$ is interpreted as a Gaussian distribution over the ground-truth value $y_\lambda$. The per-element log-likelihood is
 
@@ -162,7 +162,7 @@ where $(\bar{\mu}_\lambda, \bar{\sigma}_\lambda)$ are the training-set mean and 
 
 where by default all channel weights $w_\lambda = 1$. A score of 0 means no better than naive; 1 means ideal.
 
-\textbf{Why this metric is hard.} The GLL penalises two types of failure simultaneously: a large residual $(y - \mu)^2/\sigma^2$ punishes inaccurate means, while $\log\sigma^2$ punishes over-wide uncertainties. A model with accurate means but a mis-scaled $\sigma$ is still heavily penalised - this is why XGBoost (best RMSE) scores 0, and why uncertainty calibration is a first-class concern throughout this work.
+\textbf{Why this metric is hard.} The GLL penalises two types of failure simultaneously: a large residual $(y - \mu)^2/\sigma^2$ punishes inaccurate means, while $\log\sigma^2$ punishes over-wide uncertainties. A model with accurate means but a mis-scaled $\sigma$ is still heavily penalised - this is why proper uncertainty calibration is a first-class concern throughout this work, as uncalibrated point estimators originally scored GLL = 0.
 
 \textbf{Baseline interpretation.} A score of 0 does not mean the model is useless - it means the joint mean-uncertainty likelihood is no better than predicting the training-set average for every planet. Models with low RMSE can and do score 0 if their uncertainty estimate is uninformative (too wide or too narrow).
 
@@ -175,7 +175,7 @@ For a transiting planet, the fractional dip in stellar flux at wavelength $\lamb
 \[
 d_\lambda = 1 - \frac{\text{flux}_{\text{in}}}{\text{flux}_{\text{out}}} \approx \left(\frac{R_p}{R_s}\right)^2,
 \]
-and the \textbf{wavelength dependence} of $d_\lambda$ encodes the atmospheric composition: molecules absorb at characteristic wavelengths, making the planet appear slightly larger at those wavelengths. Transit depth is therefore the single most informative quantity, and the retrieval task reduces to estimating per-wavelength depths from noisy, time-series detector data.
+and the wavelength dependence of $d_\lambda$ encodes the atmospheric composition: molecules absorb at characteristic wavelengths, making the planet appear slightly larger at those wavelengths. Transit depth is therefore the single most informative quantity, and the retrieval task reduces to estimating per-wavelength depths from noisy, time-series detector data.
 
 Traditional atmospheric retrievals use Bayesian inference (MCMC or nested sampling) paired with physically motivated forward models to obtain full posterior distributions over atmospheric parameters. While principled, these methods require hours to days per planet and cannot scale to surveys of $\sim$1,000 targets - motivating the shift to machine learning surrogates that trade full posteriors for fast, calibrated point predictions with uncertainties.
 
@@ -198,7 +198,7 @@ Our approach follows the established recipe - physics-based preprocessing, uncer
 
 \section{Data \& Exploratory Analysis}
 
-We analyse the training targets ($\sim$1,100 planets $\times$ 283 wavelengths), the stellar and orbital metadata, and representative calibrated light curves. Cross-validation throughout uses \textbf{GroupKFold by planet} so the same planet never appears in both train and validation folds.
+We analyse the training targets ($\sim$1,100 planets $\times$ 283 wavelengths), the stellar and orbital metadata, and representative calibrated light curves. Cross-validation throughout uses GroupKFold by planet so the same planet never appears in both train and validation folds.
 
 \subsection{The target is nearly rank-1}
 
@@ -208,7 +208,7 @@ We analyse the training targets ($\sim$1,100 planets $\times$ 283 wavelengths), 
 \caption{Left: dataset-wide mean spectrum $\pm$ 1$\sigma$. Right: a sample of individual planet spectra overlaid. The $y$-axis is $(R_p/R_s)^2$.}
 \end{figure}
 
-The left panel shows the mean spectrum (centred around $(R_p/R_s)^2 \approx 0.015$) with its $\pm 1\sigma$ envelope; the right panel overlays several individual spectra. Both reveal the same structure: \textbf{individual spectra are nearly flat in wavelength}, with the dominant variation being the \emph{overall depth level} (planet size), which differs substantially between planets. Within each planet, the spectral modulation is tiny relative to the depth offset.
+The left panel shows the mean spectrum (centred around $(R_p/R_s)^2 \approx 0.015$) with its $\pm 1\sigma$ envelope; the right panel overlays several individual spectra. Both reveal the same structure: individual spectra are nearly flat in wavelength, with the dominant variation being the \emph{overall depth level} (planet size), which differs substantially between planets. Within each planet, the spectral modulation is tiny relative to the depth offset.
 
 \begin{figure}[H]
 \centering
@@ -216,7 +216,7 @@ The left panel shows the mean spectrum (centred around $(R_p/R_s)^2 \approx 0.01
 \caption{Cumulative explained variance of target PCA. The curve reaches $\approx$99.8\% at the first component and is essentially flat thereafter.}
 \end{figure}
 
-A PCA of the 283-dimensional target matrix confirms this quantitatively: \textbf{the first principal component alone captures $\approx$99.8\% of the variance}. The curve (shown from 0.90 to 1.00 on the $y$-axis across up to 80 components) is effectively a step function at component 1. The target is therefore \emph{nearly rank-1}: one number - the mean transit depth - explains almost everything, and the \textbf{atmospheric spectral features, the actual scientific signal, are a $\sim$0.2\% modulation} on top, buried in noise. This observation explains much of what follows: RMSE is nearly flat in the number of PCA components, and the score depends more on uncertainty quality than on spectral detail.
+A PCA of the 283-dimensional target matrix confirms this quantitatively: the first principal component alone captures $\approx$99.8\% of the variance. The curve (shown from 0.90 to 1.00 on the $y$-axis across up to 80 components) is effectively a step function at component 1. The target is therefore \emph{nearly rank-1}: one number - the mean transit depth - explains almost everything, and the atmospheric spectral features, the actual scientific signal, are a $\sim$0.2\% modulation on top, buried in noise. This observation explains much of what follows: RMSE is nearly flat in the number of PCA components, and the score depends more on uncertainty quality than on spectral detail.
 
 \subsection{Depth distribution and signal magnitude}
 
@@ -236,7 +236,7 @@ The mean transit depth per planet is right-skewed, with most planets in the rang
 \caption{Left: FGS1 white-light light curve (planet 1010375142) over 130 time bins, showing a clear transit dip. Right: AIRS per-wavelength curves for selected wavelength indices (0, 89, 177, 266, 355); wavelength 0 is notably noisier than the rest.}
 \end{figure}
 
-The FGS1 white-light curve (left) shows a \textbf{clean transit dip} spanning roughly time bins 20--100, validating the calibration and detrending pipeline. The AIRS per-wavelength curves (right) are significantly noisier: all channels fluctuate around a normalised flux of $\sim$1.0, but \textbf{the first AIRS channel (wavelength index 0) exhibits markedly higher noise} relative to the interior channels. This \textbf{heteroscedastic, wavelength-dependent noise structure} directly motivates per-wavelength uncertainty calibration rather than a single global $\sigma$.
+The FGS1 white-light curve (left) shows a clean transit dip spanning roughly time bins 20--100, validating the calibration and detrending pipeline. The AIRS per-wavelength curves (right) are significantly noisier: all channels fluctuate around a normalised flux of $\sim$1.0, but the first AIRS channel (wavelength index 0) exhibits markedly higher noise relative to the interior channels. This heteroscedastic, wavelength-dependent noise structure directly motivates per-wavelength uncertainty calibration rather than a single global $\sigma$.
 
 \subsection{Stellar and orbital metadata}
 
@@ -248,7 +248,7 @@ The FGS1 white-light curve (left) shows a \textbf{clean transit dip} spanning ro
 
 The metadata covers eight quantities: stellar radius $R_s$ and mass $M_s$ (both centred around 1.0--1.2 solar units), effective temperature $T_s$ (concentrated at 5500--6000 K), planet mass $M_p$ (heavily right-skewed, with most values near zero), orbital eccentricity (strongly peaked at 0, consistent with circularised close-in orbits), orbital period (3--7 days), semi-major axis, and inclination (tightly clustered near 90°, consistent with edge-on transiting geometry). These features are included as auxiliary predictors with log-transforms and depth interactions (\S{}5.2); their distributions are unimodal and well-behaved, posing no preprocessing challenge.
 
-\textbf{EDA takeaway.} The problem is a \emph{needle-in-haystack}: an easy, dominant depth signal plus a tiny, hard, low-SNR spectral modulation. A good GLL score requires both a reasonable mean \textbf{and} an uncertainty matched to the wavelength-dependent noise - neither alone is sufficient.
+\textbf{EDA takeaway.} The problem is a \emph{needle-in-haystack}: an easy, dominant depth signal plus a tiny, hard, low-SNR spectral modulation. A good GLL score requires both a reasonable mean and an uncertainty matched to the wavelength-dependent noise - neither alone is sufficient.
 
 \section{Methodology}
 
@@ -268,25 +268,64 @@ Raw AIRS/FGS signals
   -> Physics-based feature engineering
 \end{lstlisting}
 
-All stages are controlled by a unified configuration object. The same calibrated light curves feed both the tabular feature path and the deep-model tensor path, ensuring the two model classes share an identical preprocessing front-end.
+This sequence is designed to isolate the planetary transit signal from detector systematics: the calibration steps correct for pixel-level faults and instrument gains, while the temporal binning and detrending steps suppress high-frequency read noise and long-term orbital trends, respectively. All stages are controlled by a unified configuration object. The same calibrated light curves feed both the tabular feature path and the deep-model tensor path, ensuring the two model classes share an identical preprocessing front-end.
 
 \subsection{Physics-based feature engineering}
+\label{sec:features}
 
-We extract approximately 100-150 features per planet, organised into five groups:
+Feature engineering is the centrepiece of the pipeline: top Ariel solutions consistently show that physically-motivated descriptors of the light curve, rather than the raw signal, carry the predictive power. From each planet's calibrated, normalised and detrended light curves - the per-wavelength AIRS curves $\mathrm{LC}_\lambda(t)$, the FGS white-light curve, and the detected transit boundaries (out-of-transit / ingress / in-transit / egress) - together with detector calibration quality metrics and stellar metadata, we build a fixed-width descriptor vector organised into five groups. The depth, shape and noise groups are computed \emph{independently for both instruments} (AIRS and FGS, with namespaced keys such as \texttt{airs\_depth\_mean} vs.\ \texttt{fgs\_depth\_mean}), so the high-SNR photometer and the spectrometer each contribute their own view. Every feature is computed per observation and aggregated to one vector per planet (mean over observations), then standardised before modelling.
 
-\begin{itemize}
-\item \textbf{Transit depth.} Per-wavelength transit depth $d_\lambda = 1 - \bar{f}_{\text{in},\lambda}/\bar{f}_{\text{oot},\lambda}$, together with its mean, median, minimum, 5th/10th percentile, standard deviation, noise-weighted average, and mid-transit value. This is the most informative group, since $d_\lambda \approx (R_p/R_s)^2$.
+The construction is deliberately \emph{over-complete}. The fine end of the multi-scale spectral group (bin size $b{=}1$ reproduces all 283 per-wavelength depths) together with the explicit per-wavelength depth channel push the nominal width to the order of a few thousand columns per planet, dominated by the spectral group ($\sum_b \lceil 283/b\rceil \approx 564$ bins $\times\,5$ statistics). Many of these are strongly correlated or near-constant (a unit-width bin has zero variance, slope and curvature, collapsing to the depth it contains), so the \emph{effective} dimensionality is far below the nominal one. This deliberate gap - a rich, redundant feature bank whose informative content lies in a low-dimensional subspace - is exactly what the standardisation, Target-PCA projection and heavily regularised regressors of \S\ref{sec:targetpca} are designed to exploit.
 
-\item \textbf{Multi-scale spectral.} The 283 per-wavelength depths are binned at multiple scales (bin sizes 1, 2, 4, 8, 16, 32, 64); within each bin we compute mean, median, standard deviation, linear slope, and second-order curvature. This exploits the known spectral smoothness of atmospheric transmission features.
+\paragraph{(1) Transit depth.} The fundamental quantity. For each wavelength the depth is the fractional flux drop between in-transit and out-of-transit (OOT) windows,
+\[
+d_\lambda \;=\; 1 - \frac{\overline{\mathrm{LC}}^{\,\text{in}}_\lambda}{\overline{\mathrm{LC}}^{\,\text{oot}}_\lambda}\;,\qquad d_\lambda \approx \left(\frac{R_p}{R_s}\right)^2,
+\]
+so the depth spectrum is, up to noise, the target itself. We expose multiple robust summaries to hedge against outliers and transit-window mis-placement: mean, median, minimum, 5th/10th percentiles, and standard deviation across wavelength. Two summaries are physically weighted rather than plain averages. The \emph{noise-weighted depth} down-weights noisy channels using the inverse out-of-transit dispersion,
+\[
+\hat d \;=\; \frac{\sum_\lambda w_\lambda\, d_\lambda}{\sum_\lambda w_\lambda},\qquad
+w_\lambda \;=\; \frac{1}{\max\!\big(\operatorname{std}(\mathrm{LC}^{\text{oot}}_\lambda),\,\varepsilon\big)},
+\]
+and the \emph{mid-transit depth} is read at the centre of the flat transit floor, $t_{\text{mid}} = \lfloor(t_{\text{ingress,end}} + t_{\text{egress,start}})/2\rfloor$, where limb-darkening contamination is smallest. This is the single most informative group.
 
-\item \textbf{Transit shape.} Ingress and egress slopes, transit duration, mid-transit flux, in-transit symmetry, bottom curvature, out-of-transit left/right trends, and baseline drift - derived from both the FGS white-light curve and the wavelength-integrated AIRS curve.
+\paragraph{(2) Multi-scale spectral.} Atmospheric transmission spectra are smooth and correlated across wavelength, whereas detector noise is not. We therefore bin the 283 depths at scales $b \in \{1,2,4,8,16,32,64\}$ and, within each bin, compute the mean, median and standard deviation, plus two shape descriptors: a \emph{slope} (the least-squares first-order coefficient $\operatorname*{argmin}_a \sum (d_\lambda - a\lambda - c)^2$) capturing the local spectral gradient, and a \emph{curvature} measured by the mean discrete second difference $\kappa = \overline{\Delta^2 d}$ capturing convexity such as absorption-band shape. Coarse bins average down per-wavelength noise while preserving the broad spectral envelope; fine bins retain local structure. This multi-resolution view lets linear models exploit spectral continuity and is the main mechanism by which the sub-1\% atmospheric modulation is recovered from the noise floor.
 
-\item \textbf{Noise and calibration proxies.} Out-of-transit standard deviation (mean and max), in-transit standard deviation, residual standard deviation after detrending, signal-to-noise ratio, CDS noise proxy, bad and hot pixel counts, flat-field variance, dark current level, and read noise level. These directly model the instrument noise budget and are the most important group in the feature-importance ranking.
+\paragraph{(3) Transit shape.} Computed from the high-SNR FGS white-light curve and the wavelength-integrated AIRS white curve, these capture transit \emph{geometry and systematics} rather than depth. They include the ingress and egress slopes, defined as endpoint gradients over the respective boundary windows,
+\[
+s_{\text{ingress}} = \frac{\mathrm{LC}(t_{\text{ing\_end}}) - \mathrm{LC}(t_{\text{start}})}{t_{\text{ing\_end}} - t_{\text{start}}},\qquad
+s_{\text{egress}} = \frac{\mathrm{LC}(t_{\text{end}}) - \mathrm{LC}(t_{\text{egr\_start}})}{t_{\text{end}} - t_{\text{egr\_start}}},
+\]
+transit duration $t_{\text{end}}-t_{\text{start}}$, mid-transit flux, bottom curvature, an in-transit symmetry term $\big|\,\overline{\mathrm{LC}}_{\text{in,left}} - \overline{\mathrm{LC}}_{\text{in,right}}\,\big|$ (the absolute difference between the two halves of the transit floor), least-squares trends fit separately to the left and right out-of-transit baselines, and a residual baseline drift $\overline{\mathrm{LC}}^{\text{oot}}_{\text{right}} - \overline{\mathrm{LC}}^{\text{oot}}_{\text{left}}$ that flags uncorrected long-term systematics. The shape encodes limb darkening, impact parameter and uncorrected systematics, helping the model separate genuine atmospheric signal from instrumental artefacts.
 
-\item \textbf{Stellar and orbital metadata.} Stellar radius $R_s$, mass $M_s$, effective temperature $T_s$, surface gravity $\log g$, and orbital period - each in raw and log-transformed form, plus depth-times-stellar-parameter interaction terms.
-\end{itemize}
+\paragraph{(4) Noise and calibration proxies.} Because the metric grades $\sigma$ as strongly as $\mu$, we engineer features that quantify how \emph{reliable} each planet's signal is: out-of-transit standard deviation (mean and max across wavelength), in-transit standard deviation, and a \emph{residual standard deviation after detrending} - the scatter $\operatorname{std}(\mathrm{LC}^{\text{oot}} - \widehat{\text{trend}})$ left once a least-squares degree-1 trend is removed from the out-of-transit baseline, which isolates the pure photon/read-noise floor from any residual astrophysical drift. We also add the per-wavelength signal-to-noise ratio
+\[
+\mathrm{SNR}_\lambda \;=\; \frac{d_\lambda}{\operatorname{std}\!\big(\mathrm{LC}^{\text{oot}}_\lambda\big)},
+\]
+a CDS read-noise proxy, dead/hot pixel counts, flat-field variance, dark-current level, and read-noise level (the last group propagated from the calibration files). These let the model estimate the heteroscedastic, planet- and wavelength-dependent uncertainty; empirically they are the \emph{most important} group in the feature-importance ranking (\S\ref{sec:featimp}).
+
+\paragraph{(5) Stellar and orbital metadata.} Stellar radius $R_s$, mass $M_s$, effective temperature $T_s$, surface gravity $\log g$, and orbital period are included in raw and log-transformed form, augmented by a physically-derived surface-gravity proxy $\log g_{\text{proxy}} = \log(M_s/R_s^2)$ (gravity $\propto M/R^2$) that is robust when the catalogue $\log g$ is missing. Because the absolute depth scales with the star, we also add depth$\,\times\,$stellar-parameter interactions (e.g.\ depth$\times R_s$, depth$\times T_s$, depth$\times\log g$, depth$\times\log g_{\text{proxy}}$), which let the model condition the spectral prediction on host-star properties.
+
+Table~\ref{tab:features} summarises the five groups, their source curve, and their approximate contribution to the descriptor width. The vectors are concatenated, non-finite entries imputed to zero, and standardised with a \texttt{StandardScaler} before the Target-PCA regression layer (\S\ref{sec:targetpca}). The same physically-grounded design underlies the deep-model tensor path, which consumes the calibrated light curves directly instead of these aggregated descriptors.
+
+\begin{table}[H]
+\centering\small
+\caption{Physics-based feature groups, their source light curve, representative members, and approximate column count (default configuration, 283 wavelengths). The multi-scale spectral group dominates the nominal width; many of its fine-bin columns are near-constant and absorbed by the downstream PCA.}
+\label{tab:features}
+\begin{tabular}{@{}p{0.20\linewidth} p{0.20\linewidth} p{0.36\linewidth} p{0.13\linewidth}@{}}
+\toprule
+\textbf{Group} & \textbf{Source} & \textbf{Representative features} & \textbf{$\approx$ cols} \\
+\midrule
+Transit depth & AIRS + FGS & mean/median/min/p05/p10/std, noise-weighted $\hat d$, mid-transit $d$; optional per-wavelength $d_\lambda$ & $16+283$ \\
+Multi-scale spectral & AIRS depth & per-bin mean/median/std/slope/curvature at $b\in\{1,\dots,64\}$ & ${\sim}2820$ \\
+Transit shape & FGS + AIRS-white & ingress/egress slope, duration, mid-transit flux, symmetry, OOT trends, baseline drift & $18$ \\
+Noise \& calibration & AIRS + FGS + calib.\ files & OOT/in-transit std, residual std after detrending, $\mathrm{SNR}_\lambda$, CDS proxy, dead/hot-pixel counts, flat/dark/read noise & ${\sim}12+\text{calib}$ \\
+Stellar \& orbital & \texttt{star\_info} & $R_s,M_s,T_s,\log g$, period (raw + log), $\log g_{\text{proxy}}$, depth interactions & ${\sim}14$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Target PCA and per-component regression}
+\label{sec:targetpca}
 
 Rather than training 283 independent regressors, we reduce the output space via PCA on the target matrix and regress each principal component separately:
 
@@ -300,16 +339,16 @@ This compresses 283 outputs to typically 20-40 components, enforces spectral smo
 \hat{\sigma}^2_{Y,j} = \sum_k W_{kj}^2\,\hat{\sigma}^2_{Z,k} + \hat{\varepsilon}^2_j,
 \]
 
-where $W_{kj}$ are the PCA loading entries, $\hat{\sigma}^2_{Z,k}$ is the per-component predictive variance from the base regressor, and $\hat{\varepsilon}_j$ is estimated on a held-out calibration split.
+where $W_{kj}$ are the PCA loading entries (representing the weight of component $k$ at wavelength $j$), $\hat{\sigma}^2_{Z,k}$ is the per-component predictive variance from the base regressor, and $\hat{\varepsilon}_j$ is estimated on a held-out calibration split.
 
-\textbf{Efficient $n_{\text{components}}$ sweep.} PCA components are nested: the first $k$ components of a $K_{\max}$-component fit equal those of a stand-alone $k$-component fit. Combined with the independence of per-component regressors, this means we can fit \emph{once} at $K_{\max}$ and evaluate every smaller $k$ by truncating the component sum - bit-for-bit identical to running full cross-validation at each $k$, but without the cost factor of the grid.
+\textbf{Efficient $n_{\text{components}}$ sweep.} PCA components are nested: the first $k$ components of a $K_{\max}$-component fit equal those of a stand-alone $k$-component fit. This prefix-nesting property means that fitting a single model with $K_{\max}$ components automatically fits all sub-models with $k < K_{\max}$ components, since the individual regressors $f_k$ are independent. We can therefore evaluate the entire grid of component counts by simply truncating the prediction sum, reducing the computational cost of hyperparameter search by a factor equal to the grid size, while producing bit-for-bit identical results to running separate cross-validation runs at each $k$.
 
-\subsection{Model families}
+\subsection{Tabular model families}
 
-All tabular estimators are wrapped in the Target-PCA layer and differ only in the base regressor for each PCA component. The 22 models benchmarked in \S{}6.1 span seven families:
+All tabular estimators are wrapped in the Target-PCA layer and differ only in the base regressor for each PCA component. These models consume the hand-crafted feature vectors of \S\ref{sec:features}. The 16 tabular models span six families:
 
 \begin{center}\small
-\begin{tabular}{@{}p{0.28\linewidth} p{0.64\linewidth}@{}}
+\begin{tabular}{@{}p{0.32\linewidth} p{0.60\linewidth}@{}}
 \toprule
 \textbf{Family} & \textbf{Models} \\
 \midrule
@@ -319,14 +358,119 @@ Kernel / SVM & SVR, Kernel Ridge \\
 Neighbours & KNN \\
 Tree ensembles & Random Forest, Extra Trees, Hist Gradient Boosting, LightGBM, XGBoost \\
 Shallow neural & MLP \\
-Deep sequence & CNN1D, TCN, LSTM, GRU, Transformer, Autoencoder+MLP \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Uncertainty is drawn from the most natural source per family: \textbf{Bayesian predictive standard deviation} for Bayesian Ridge, ARD, Gaussian Process, and NGBoost; \textbf{ensemble standard deviation across trees} for Random Forest and Extra Trees; and a \textbf{residual-RMSE fallback} for all point estimators (Ridge, Lasso, SVR, KNN, the gradient-boosting machines). The residual-RMSE fallback is a constant fitted on the calibration split - it is wide by construction and is the primary reason these models cluster at GLL = 0.
+To handle the redundant, highly collinear features and predict target component values, we employ distinct theoretical mechanisms across these six families:
+
+\begin{itemize}
+\item \textbf{Linear Models:} Ridge, Lasso, and ElasticNet solve regularised least-squares objectives to find coefficient vectors $w_k \in \mathbb{R}^d$ and bias $b_k \in \mathbb{R}$ for each PCA component $k$. Under high collinearity of multi-scale spectral features, the Gram matrix $X^T X$ is ill-conditioned or singular. Ridge regression addresses this by adding a quadratic penalty on the coefficient $L_2$-norm, solving:
+\[
+\min_{w_k,b_k} \frac{1}{2N} \sum_{i=1}^N \left(z_{i,k} - w_k^T x_i - b_k\right)^2 + \frac{\lambda}{2} \|w_k\|_2^2
+\]
+which distributes weights smoothly across collinear spectral bins. Lasso regression enforces sparsity and performs automatic feature selection using an $L_1$ penalty:
+\[
+\min_{w_k,b_k} \frac{1}{2N} \sum_{i=1}^N \left(z_{i,k} - w_k^T x_i - b_k\right)^2 + \lambda \|w_k\|_1
+\]
+which drives uninformative feature weights to exactly zero, effectively selecting a sparse subset of bins. ElasticNet combines both penalties to handle groups of highly correlated multi-scale features:
+\[
+\min_{w_k,b_k} \frac{1}{2N} \sum_{i=1}^N \left(z_{i,k} - w_k^T x_i - b_k\right)^2 + \lambda_1 \|w_k\|_1 + \frac{\lambda_2}{2} \|w_k\|_2^2
+\]
+allowing correlated features to be selected together while maintaining overall sparsity.
+
+\item \textbf{Bayesian and Probabilistic Models:} These models formulate explicit probability distributions to naturally handle predictive uncertainty. Bayesian Ridge regression assumes a Gaussian prior over the weights $w_k \sim \mathcal{N}(0, \alpha^{-1} I)$ and a Gaussian likelihood $z_{i,k} \sim \mathcal{N}(w_k^T x_i + b_k, \beta^{-1})$. Hyperparameters $\alpha, \beta$ are estimated via marginal likelihood maximisation. The weight posterior is $w_k \sim \mathcal{N}(\mu_{w,k}, \Sigma_{w,k})$, where:
+\[
+\Sigma_{w,k} = \left(\beta X^T X + \alpha I\right)^{-1}, \quad \mu_{w,k} = \beta \Sigma_{w,k} X^T (z_k - b_k \mathbf{1})
+\]
+For a new input $x_*$, the analytical predictive mean is $\mu_{*,k} = \mu_{w,k}^T x_* + b_k$ and the predictive variance is $\sigma_{*,k}^2 = \beta^{-1} + x_*^T \Sigma_{w,k} x_*$, capturing both data noise and weight uncertainty.
+Automatic Relevance Determination (ARD) generalises this by assigning an independent prior variance to each feature weight, $w_{k,j} \sim \mathcal{N}(0, \alpha_{k,j}^{-1})$, effectively pruning out irrelevant feature columns as $\alpha_{k,j} \to \infty$. Gaussian Process Regression (GPR) models the function space directly: $f_k(x) \sim \mathcal{GP}(0, k(x, x'))$, using a Mat\'{e}rn covariance kernel. The joint distribution of training targets $z_k$ and the prediction $f_k(x_*)$ at $x_*$ yields the exact predictive mean $\mu_{*,k}$ and variance $\sigma_{*,k}^2$:
+\[
+\mu_{*,k} = K_*^T \left(K + \sigma_n^2 I\right)^{-1} z_k, \quad \sigma_{*,k}^2 = k(x_*, x_*) - K_*^T \left(K + \sigma_n^2 I\right)^{-1} K_*
+\]
+where $K_{ij} = k(x_i, x_j)$ and $K_* = [k(x_1, x_*), \dots, k(x_N, x_*)]^T$. Natural Gradient Boosting (NGBoost) sequentially builds regression trees to estimate parameters $\theta(x) = (\mu(x), \log\sigma(x))^T$ of a Gaussian distribution, using natural gradient updates scaled by the inverse Fisher Information Matrix $I(\theta)^{-1} \nabla_\theta \mathcal{L}(\theta; z_{i,k})$ to account for the non-Euclidean geometry of the probability space.
+
+\item \textbf{Kernel-Based Models:} Support Vector Regression (SVR) and Kernel Ridge Regression (KRR) map input features into a high-dimensional reproducing kernel Hilbert space (RKHS) via a non-linear mapping $\Phi(x)$ with kernel $K(x, x') = \langle \Phi(x), \Phi(x') \rangle$. SVR minimises the $\epsilon$-insensitive loss function:
+\[
+\min_{w_k,b_k,\xi,\xi^*} \frac{1}{2} \|w_k\|_2^2 + C \sum_{i=1}^N \left(\xi_i + \xi_i^*\right)
+\]
+subject to:
+\[
+(w_k^T \Phi(x_i) + b_k) - z_{i,k} \leq \epsilon + \xi_i, \quad z_{i,k} - (w_k^T \Phi(x_i) + b_k) \leq \epsilon + \xi_i^*, \quad \xi_i, \xi_i^* \geq 0
+\]
+which ignores errors smaller than $\epsilon$ and leads to a sparse representation relying only on support vectors. KRR combines Ridge regression with kernels, solving the dual problem analytically: $\alpha = (K + \lambda I)^{-1} z_k$, yielding $f_k(x) = \sum_{i=1}^N \alpha_i K(x_i, x)$.
+
+\item \textbf{Neighbours:} K-Nearest Neighbours (KNN) is a non-parametric method that predicts target component values by computing the distance to all training instances, identifying the $k$ closest samples $\mathcal{N}_k(x)$, and performing distance-weighted averaging:
+\[
+f_k(x) = \frac{\sum_{i \in \mathcal{N}_k(x)} w_i z_{i,k}}{\sum_{i \in \mathcal{N}_k(x)} w_i}, \quad w_i = \frac{1}{\|x - x_i\|_2 + \epsilon}
+\]
+which is robust to local variations but highly sensitive to the distance metric in high dimensions.
+
+\item \textbf{Decision Tree Ensembles:} Random Forest and Extra Trees construct multiple decision trees on bootstrap samples and average their predictions. Random Forest searches for optimal splits at each node by minimising the mean squared error (MSE) variance reduction:
+\[
+\Delta \mathcal{I} = \operatorname{Var}(S) - \left( \frac{|S_{\text{left}}|}{|S|} \operatorname{Var}(S_{\text{left}}) + \frac{|S_{\text{right}}|}{|S|} \operatorname{Var}(S_{\text{right}}) \right)
+\]
+where $S$ is the set of samples in the parent node and $\operatorname{Var}(S) = \frac{1}{|S|} \sum_{i \in S} (z_{i,k} - \bar{z}_{S,k})^2$. Extra Trees selects split thresholds completely at random for each feature candidate to reduce model variance. Gradient-boosting machines (HistGB, LightGBM, XGBoost) build trees sequentially. For step $m$, XGBoost minimises a second-order Taylor expansion of the regularised objective:
+\[
+\mathcal{L}^{(m)} \approx \sum_{i=1}^N \left[ g_{i,k} f_m(x_i) + \frac{1}{2} h_{i,k} f_m(x_i)^2 \right] + \gamma T + \frac{\lambda}{2} \sum_{j=1}^T w_j^2
+\]
+where $g_{i,k} = \hat{z}_{i,k}^{(m-1)} - z_{i,k}$ and $h_{i,k} = 1$ for the squared error loss, and $T$ is the number of leaves. LightGBM and HistGB group continuous features into discrete histograms to accelerate split finding.
+
+\item \textbf{Shallow Neural Networks:} The Multi-Layer Perceptron (MLP) employs fully connected layers with non-linear activation functions (ReLU), trained via backpropagation to minimise the $L_2$ loss with weight decay:
+\[
+\min_{W, b} \frac{1}{2N} \sum_{i=1}^N \left(z_{i,k} - \text{MLP}(x_i)\right)^2 + \frac{\alpha}{2} \sum_l \|W^{(l)}\|_F^2
+\]
+where $\|W^{(l)}\|_F$ is the Frobenius norm of the weight matrix for layer $l$.
+\end{itemize}
+
+Since GLL scoring requires predictive variance $\sigma^2$, uncertainty is drawn from the most natural source per family: Bayesian predictive standard deviation for Bayesian Ridge, ARD, Gaussian Process, and NGBoost; ensemble standard deviation across trees for Random Forest and Extra Trees; and a per-wavelength residual-RMSE fallback (a vector of size 283 fitted on the calibration split) for all point estimators (Ridge, Lasso, SVR, KNN, MLP, and the gradient-boosting machines). The residual-RMSE fallback is wide by construction and is the primary reason these point estimators require proper calibration to avoid scoring near zero.
 
 Two additional families - hybrid (Bayesian Ridge with a boosting residual correction) and mean-shift (explicit depth/shape decomposition) - are implemented but excluded from the main benchmark; the mean-shift ablation is discussed in \S{}6.4.
+
+\subsection{Deep sequence models}
+
+To provide deep learning baselines, we evaluate six sequence-based architectures. Unlike the tabular models, these architectures consume the calibrated, time-varying sequence tensors directly, bypassing the manual feature engineering step of \S\ref{sec:features}. Input tensors have shape $[\text{planets} \times T \times C]$, where $T = 128$ time steps and $C = 65$ channels (1 FGS white-light curve concatenated with 64 wavelength-binned AIRS curves), standardised per channel.
+
+All architectures share a dual-head output layer producing $(\mu, \log\hat{\sigma})$ per target. They are trained with a vectorised Gaussian NLL loss summing over all $N$ samples and $M = 283$ targets, where $\sigma_{ij} = \mathrm{softplus}(\log\hat{\sigma}_{ij}) + \varepsilon$ ensures positivity (with the safety floor $\varepsilon = 10^{-6}$):
+
+\[
+\mathcal{L} = \frac{1}{N \cdot M}\sum_{i=1}^N \sum_{j=1}^M \left[\frac{(y_{ij} - \mu_{ij})^2}{2\sigma_{ij}^2} + \log\sigma_{ij}\right].
+\]
+
+\begin{itemize}
+\item \textbf{CNN1D.} Employs temporal convolutions to extract local shift-invariant patterns across the sequence. By sharing weights along the time dimension, it captures features like transit boundaries (ingress/egress steps) regardless of their absolute temporal positioning:
+\[
+h_t = f\left(\sum_{\tau=-k}^{k} W_\tau x_{t+\tau} + b\right).
+\]
+\item \textbf{TCN (Temporal Convolutional Network).} Utilises dilated convolutions and causal constraints to exponentially expand the receptive field without losing resolution. Dilated convolutions introduce a dilation factor $d$, allowing the network to capture dependencies across the entire sequence length:
+\[
+h_t = f\left(\sum_{\tau=0}^{k-1} W_\tau x_{t-d\cdot\tau} + b\right).
+\]
+\item \textbf{LSTM.} Mitigates the vanishing gradient problem in recurrent networks using a cell state $c_t$ regulated by three gates: input ($i_t$), forget ($f_t$), and output ($o_t$). This allows it to preserve and accumulate temporal information over long time horizons:
+\[
+f_t = \sigma(W_f [h_{t-1}, x_t] + b_f), \quad i_t = \sigma(W_i [h_{t-1}, x_t] + b_i)
+\]
+\[
+c_t = f_t \odot c_{t-1} + i_t \odot \tanh(W_c [h_{t-1}, x_t] + b_c)
+\]
+\[
+o_t = \sigma(W_o [h_{t-1}, x_t] + b_o), \quad h_t = o_t \odot \tanh(c_t).
+\]
+\item \textbf{GRU.} Streamlines the LSTM architecture by merging the cell state and hidden state, using only update ($z_t$) and reset ($r_t$) gates. This reduces parameter complexity while maintaining comparable temporal memory capacity:
+\[
+z_t = \sigma(W_z [h_{t-1}, x_t] + b_z), \quad r_t = \sigma(W_r [h_{t-1}, x_t] + b_r)
+\]
+\[
+\tilde{h}_t = \tanh(W_h [r_t \odot h_{t-1}, x_t] + b_h), \quad h_t = (1 - z_t) \odot h_{t-1} + z_t \odot \tilde{h}_t.
+\]
+\item \textbf{Transformer.} Dispenses with recurrent structures entirely, relying on Multi-Head Self-Attention (MHA) to capture global dependencies. Self-attention maps queries ($Q$), keys ($K$), and values ($V$) to dynamically weight pairwise relations across any temporal distance:
+\[
+\mathrm{Attention}(Q, K, V) = \mathrm{softmax}\left(\frac{Q K^T}{\sqrt{d_k}}\right) V.
+\]
+\item \textbf{Autoencoder+MLP.} Compresses the temporal tensor $X \in \mathbb{R}^{T \times C}$ into a lower-dimensional bottleneck latent code $z \in \mathbb{R}^d$ using an encoder network. This bottleneck forces the representation to discard high-frequency random noise and isolate the primary astrophysical factors of variation, which are then mapped to the output spectrum by a downstream MLP.
+\end{itemize}
+
+An optional target PCA (30 components) mirrors the tabular setup, with uncertainty propagated through the inverse transform as in \S{}5.3. Training uses the Adam optimiser with early stopping (patience 20, maximum 200 epochs).
 
 \subsection{PHC: Physics-conditioned Heteroscedastic Calibration}
 
@@ -346,31 +490,11 @@ the root-mean-square of the normalised residuals in column $j$ - no iteration re
 t_i = \sqrt{\frac{1}{M}\sum_{j=1}^M \left(\frac{r_{ij}}{s_j\,\sigma_{ij}}\right)^2}
 \]
 
-is predicted from the noise features via log-space ridge regression ($\log t_i \sim X_i$), so noisier observations receive proportionally wider intervals.
+where $r_{ij} = y_{ij} - \mu_{ij}$ is the residual and $M = 283$ is the number of wavelength channels. This row multiplier $t_i$ is predicted from the noise features via log-space ridge regression ($\log t_i \sim X_i$), so noisier observations receive proportionally wider intervals.
 
-\textbf{Step 3 - GLL-weighted family mixture.} Model families can be combined as a Gaussian mixture, with weights $\propto \mathrm{softmax}(\text{validation GLL}/\tau)$, prioritising better-calibrated families.
+\textbf{Step 3 - GLL-weighted family mixture.} Model families can be combined as a Gaussian mixture, with weights $w_m \propto \mathrm{softmax}(\text{validation GLL}_m / \tau)$, where $\tau$ is a temperature parameter, prioritising better-calibrated families.
 
 PHC places every model's $\sigma$ on a common footing for the synchronised comparison in \S{}6.6. Its empirical effect on the score is examined critically in \S{}6.3.
-
-\subsection{Deep sequence models}
-
-Six architectures are trained end-to-end on calibrated light curves as comparative baselines. Input tensors have shape $[\text{planets} \times T \times C]$, where $T = 128$ time steps and $C = 65$ channels (1 FGS white-light curve concatenated with 64 wavelength-binned AIRS curves), standardised per channel.
-
-All architectures share a dual-head output layer producing $(\mu, \log\hat{\sigma})$ per target and are trained with a Gaussian NLL loss, where $\sigma = \mathrm{softplus}(\log\hat{\sigma}) + \varepsilon$ ensures positivity:
-
-\[
-\mathcal{L} = \frac{1}{N}\sum_i \left[\frac{(y_i - \mu_i)^2}{2\sigma_i^2} + \log\sigma_i\right].
-\]
-
-\begin{itemize}
-\item \textbf{CNN1D.} Three Conv1D layers with kernel sizes 7, 5, 3 and progressively widened feature maps, batch normalisation, ReLU, and adaptive average pooling.
-\item \textbf{TCN (Temporal Convolutional Network).} Four dilated Conv1D layers with exponentially increasing dilation factors (1, 2, 4, 8), yielding a receptive field spanning the full light curve with few parameters.
-\item \textbf{LSTM / GRU.} Two-layer recurrent networks; the final hidden state is projected to the output head.
-\item \textbf{Transformer.} Linear input projection followed by a three-layer TransformerEncoder (4 attention heads, $4\times$ feedforward expansion, pre-layer normalisation), then global average pooling over time.
-\item \textbf{Autoencoder+MLP.} A bottleneck encoder compresses the time series to a latent vector, from which an MLP predicts the spectrum.
-\end{itemize}
-
-An optional target PCA (30 components) mirrors the tabular setup, with uncertainty propagated through the inverse transform as in \S{}5.3. Training uses the Adam optimiser with early stopping (patience 20, maximum 200 epochs).
 
 \subsection{Evaluation protocol}
 
@@ -394,40 +518,58 @@ In all result tables, \emph{cov 1$\sigma$} denotes empirical one-standard-deviat
 
 \subsection{Model-family benchmark (22 models)}
 
-We cross-validate every tabular model on identical folds under the official metric. Deep model results come from a single held-out split and are included in the ranking table for orientation. The full ranking:
+We cross-validate every tabular model on identical folds under the official metric. Deep model results come from a single held-out split. Table~\ref{tab:ml_benchmark} presents the performance of the tabular ML-based models grouped by model family and ranked by Ariel GLL score within each family, while Table~\ref{tab:dl_benchmark} outlines the results of the deep sequence architectures.
 
-\begin{center}\scriptsize
-\resizebox{\linewidth}{!}{%
+\begin{table}[H]
+\centering\small
+\caption{Performance of Tabular ML-based models, grouped by model family and ranked by Ariel GLL score within each family.}
+\label{tab:ml_benchmark}
 \begin{tabular}{@{}l l l l l l l@{}}
 \toprule
 Family & Model & Ariel GLL & RMSE & NLL & cov 1$\sigma$ & $\bar{\sigma}$ \\
 \midrule
-deep & cnn1d & 0.227 & 0.00312 & -5.76 & 0.76 & 0.0023 \\
-deep & transformer & 0.226 & 0.00207 & -5.75 & 0.72 & 0.0020 \\
-trees & extra\_trees & 0.215 & 0.00253 & -5.65 & 0.94 & 0.0031 \\
-trees & random\_forest & 0.199 & 0.00273 & -5.52 & 0.93 & 0.0036 \\
-bayesian & ngboost & 0.167 & 0.00221 & -5.29 & 0.95 & 0.0047 \\
-deep & tcn & 0.167 & 0.00373 & -5.32 & 0.71 & 0.0033 \\
-bayesian & ard & 0.143 & 0.00247 & -5.11 & 0.94 & 0.0054 \\
-deep & gru & 0.129 & 0.00448 & -5.03 & 0.84 & 0.0040 \\
-bayesian & bayesian\_ridge & 0.093 & 0.00352 & -4.73 & 0.95 & 0.0078 \\
-deep & lstm & 0.000 & 0.01030 & -4.08 & 0.82 & 0.0103 \\
-trees & hist\_gradient\_boosting & \textbf{0.000} & 0.00264 & -1.28 & 1.00 & 0.280 \\
-trees & xgboost & \textbf{0.000} & \textbf{0.00237} & -1.30 & 1.00 & 0.279 \\
-trees & lightgbm & \textbf{0.000} & 0.00261 & -1.29 & 1.00 & 0.278 \\
-kernel\_svm & svr & 0.000 & 0.00439 & -0.73 & 1.00 & 0.485 \\
-kernel\_svm & kernel\_ridge & 0.000 & 0.00517 & -0.53 & 1.00 & 0.595 \\
-neighbors & knn & 0.000 & 0.00541 & -0.53 & 1.00 & 0.595 \\
-linear & lasso & 0.000 & 0.00252 & -1.24 & 1.00 & 0.298 \\
-linear & elastic\_net & 0.000 & 0.00280 & -1.15 & 1.00 & 0.325 \\
-linear & ridge & 0.000 & 0.00643 & -0.35 & 1.00 & 0.708 \\
-neural & mlp & 0.000 & 0.00635 & -0.37 & 1.00 & 0.703 \\
-bayesian & gaussian\_process & 0.000 & 0.01066 & -3.91 & 0.92 & 0.016 \\
-deep & autoencoder\_mlp & 0.000 & 0.01059 & -3.87 & 0.87 & 0.0129 \\
+\textbf{Tree ensembles} & extra\_trees & \textbf{0.236} & 0.00253 & -4.88 & 0.84 & 0.0020 \\
+& random\_forest & 0.218 & 0.00277 & -4.75 & 0.85 & 0.0023 \\
+& xgboost & 0.185 & \textbf{0.00237} & -4.50 & 0.90 & 0.0028 \\
+& lightgbm & 0.185 & 0.00261 & -4.50 & 0.88 & 0.0028 \\
+& hist\_gradient\_boosting & 0.184 & 0.00264 & -4.49 & 0.88 & 0.0028 \\
+\midrule
+\textbf{Bayesian} & ard & 0.186 & 0.00247 & -4.51 & 0.83 & 0.0028 \\
+& ngboost & 0.167 & 0.00221 & -5.29 & 0.95 & 0.0047 \\
+& bayesian\_ridge & 0.134 & 0.00352 & -4.12 & 0.85 & 0.0043 \\
+& gaussian\_process & 0.000 & 0.01066 & -3.91 & 0.92 & 0.0159 \\
+\midrule
+\textbf{Linear} & lasso & 0.174 & 0.00252 & -4.42 & 0.86 & 0.0030 \\
+& elastic\_net & 0.165 & 0.00280 & -4.35 & 0.83 & 0.0033 \\
+& ridge & 0.067 & 0.00643 & -3.62 & 0.78 & 0.0071 \\
+\midrule
+\textbf{Kernel / SVM} & svr & 0.110 & 0.00439 & -3.94 & 0.87 & 0.0048 \\
+& kernel\_ridge & 0.088 & 0.00517 & -3.78 & 0.90 & 0.0059 \\
+\midrule
+\textbf{Neighbours} & knn & 0.085 & 0.00541 & -3.75 & 0.82 & 0.0060 \\
+\midrule
+\textbf{Shallow neural} & mlp & 0.065 & 0.00635 & -3.60 & 0.77 & 0.0070 \\
 \bottomrule
 \end{tabular}
-}
-\end{center}
+\end{table}
+
+\begin{table}[H]
+\centering\small
+\caption{Performance of Deep Learning (DL-based) sequence models, ranked by Ariel GLL score.}
+\label{tab:dl_benchmark}
+\begin{tabular}{@{}l l l l l l@{}}
+\toprule
+Model & Ariel GLL & RMSE & NLL & cov 1$\sigma$ & $\bar{\sigma}$ \\
+\midrule
+cnn1d & 0.227 & 0.00312 & -5.76 & 0.76 & 0.0023 \\
+transformer & 0.226 & 0.00207 & -5.75 & 0.72 & 0.0020 \\
+tcn & 0.167 & 0.00373 & -5.32 & 0.71 & 0.0033 \\
+gru & 0.129 & 0.00448 & -5.03 & 0.84 & 0.0040 \\
+lstm & 0.000 & 0.01030 & -4.08 & 0.82 & 0.0103 \\
+autoencoder\_mlp & 0.000 & 0.01059 & -3.87 & 0.87 & 0.0129 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[H]
 \centering
@@ -435,7 +577,7 @@ deep & autoencoder\_mlp & 0.000 & 0.01059 & -3.87 & 0.87 & 0.0129 \\
 \caption{Ariel GLL scores for the 16 tabular ML models ranked by cross-validation performance (blue). Only ML models are shown; deep model results are evaluated separately and reported in \S{}6.6.}
 \end{figure}
 
-The results split into two clear clusters. Models with \textbf{informative uncertainty} - the tree ensembles (Extra Trees \cite{geurts2006}, Random Forest \cite{breiman2001}) and the Bayesian models (NGBoost \cite{duan2020}, ARD, Bayesian Ridge) - achieve GLL $>$ 0. All remaining 16 models score GLL = 0. This cluster has two distinct failure modes: (i) \textbf{point estimators} (Ridge, Lasso, ElasticNet, MLP, SVR, Kernel Ridge, KNN, and the gradient-boosting machines) whose residual-RMSE-fallback uncertainty is far too wide ($\bar{\sigma}\approx 0.28$-$0.71$, coverage 1.0) - with XGBoost \cite{chen2016} being the most striking case: \textbf{best RMSE (0.00237) yet GLL = 0}; and (ii) two weak deep models (LSTM, Autoencoder+MLP) whose $\bar{\sigma}$ is reasonable ($\approx 0.01$-$0.013$) but whose mean is poor (RMSE $\approx 0.010$, roughly $4\times$ the best). Both failure modes confirm that a good score requires \emph{both} an accurate mean \emph{and} a well-scaled uncertainty.
+The results show that proper uncertainty calibration significantly improves performance across all families. Previously, point estimators suffered from over-wide fallback uncertainty and scored GLL = 0. In the updated benchmark (Run 2), calibrated point estimators (such as the gradient-boosting machines, Lasso, and SVM) achieve competitive GLL scores ranging from 0.065 to 0.185. However, tree ensembles (Extra Trees \cite{geurts2006} scoring 0.236, Random Forest \cite{breiman2001} scoring 0.218) and Bayesian models (ARD scoring 0.186, NGBoost \cite{duan2020} scoring 0.167) still lead, confirming that naturally informative or well-calibrated probabilistic predictions are superior. Crucially, point-prediction accuracy alone does not guarantee a high GLL score: for example, XGBoost \cite{chen2016} achieves the best tabular point-prediction RMSE (0.00237) but its GLL (0.185) is significantly outperformed by Extra Trees (0.236, RMSE 0.00253). Meanwhile, the weakest models (LSTM, Gaussian Process, and Autoencoder+MLP) fail to beat the naive baseline (GLL $\approx$ 0.000) due to poor point predictions (RMSE $\approx$ 0.010, roughly $4\times$ the best). Both findings confirm that a good score requires \emph{both} an accurate mean \emph{and} a well-scaled uncertainty.
 
 \textit{Note on protocol mixing.} Deep results come from a single held-out split without PHC; ML results come from 3-fold cross-validation with PHC. This table is for screening only - \S{}6.6 corrects the comparison under an identical protocol.
 
@@ -452,10 +594,9 @@ We vary only the uncertainty-calibration stage of Bayesian Ridge, keeping the me
 \toprule
 Calibration & Ariel GLL & NLL \\
 \midrule
-\textbf{none} (raw $\sigma$) & \textbf{0.127} & -4.99 \\
-scalar (global) & 0.093 & -4.73 \\
-per-wavelength (PHC Step 1) & 0.093 & -4.73 \\
-feature-conditioned (PHC Step 2) & 0.063 & -4.45 \\
+scalar (global) & \textbf{0.134} & -4.12 \\
+per-wavelength (PHC Step 1) & \textbf{0.134} & -4.12 \\
+feature-conditioned (PHC Step 2) & 0.000 & -1.75 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -463,10 +604,10 @@ feature-conditioned (PHC Step 2) & 0.063 & -4.45 \\
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.85\linewidth]{figures/analysis_calibration_ablation.png}
-\caption{Ariel GLL for Bayesian Ridge under four calibration regimes. GLL decreases monotonically with calibration complexity: no calibration (0.127), global scalar and per-wavelength calibration (both 0.093), and feature-conditioned calibration (0.063).}
+\caption{Ariel GLL for Bayesian Ridge under calibration regimes. Global scalar and per-wavelength calibration achieve identical performance (0.134), while feature-conditioned calibration drops to 0.000 due to overfitting.}
 \end{figure}
 
-This is a \textbf{negative result, reported honestly}: the uncalibrated model scores highest; scalar and per-wavelength calibration identically reduce the score; feature-conditioning reduces it further by overfitting. The reliability diagram explains the mechanism:
+This is a mixed result, reported honestly: scalar and per-wavelength calibration perform identically, while feature-conditioning drops to zero by severely overfitting. The reliability diagram explains the mechanism:
 
 \begin{figure}[H]
 \centering
@@ -474,11 +615,11 @@ This is a \textbf{negative result, reported honestly}: the uncalibrated model sc
 \caption{Reliability diagram for Bayesian Ridge + PHC. The red curve lies above the ideal diagonal at all nominal coverage levels, indicating systematic under-confidence: predicted intervals are too wide throughout.}
 \end{figure}
 
-The empirical coverage curve lies consistently above the diagonal at all nominal levels, meaning the model's $\sigma$ is already too wide \emph{before} any recalibration. Two mechanisms explain this: (i) the base regressor already incorporates a per-wavelength residual RMSE into $\sigma$, making an additional per-wavelength scale redundant - which is why scalar and per-wavelength calibration score identically; and (ii) since the intrinsic $\sigma$ is already over-wide, any multiplicative adjustment widens it further, lowering GLL. \textbf{Conclusion:} on this dataset the models' intrinsic uncertainty is already adequate. PHC is theoretically grounded and valuable for standardising $\sigma$ across model families for the fair comparison in \S{}6.6, but it is not a score-improving step here.
+The empirical coverage curve lies consistently above the diagonal at all nominal levels, meaning the model's $\sigma$ is already too wide. Two mechanisms explain this: (i) the base regressor already incorporates a per-wavelength residual RMSE into $\sigma$, making an additional per-wavelength scale redundant - which is why scalar and per-wavelength calibration score identically; and (ii) feature-conditioned calibration drastically overfits the noise parameters, causing the performance collapse. \textbf{Conclusion:} on this dataset the models' intrinsic uncertainty is already adequate, and simple scaling is sufficient. PHC is theoretically grounded and valuable for standardising $\sigma$ across model families for the fair comparison in \S{}6.6, but complex conditioning is a negative path here.
 
 \subsection{Mean-depth and shape decomposition (negative ablation)}
 
-Motivated by the rank-1 EDA, we trained a decomposed model: predict the per-planet mean depth and the residual spectral shape separately, then recombine. Across many configurations this gave \textbf{no improvement} (linear models: +0.001-0.009 GLL; tree ensembles: worse by 0.03-0.04 GLL). Target-PCA already separates the rank-1 structure implicitly - the first principal component captures the depth level - making an explicit split redundant for linear models and harmful for trees. This approach is excluded from the main benchmark.
+Motivated by the rank-1 EDA, we trained a decomposed model: predict the per-planet mean depth and the residual spectral shape separately, then recombine. Across many configurations this gave no improvement (linear models: +0.001-0.009 GLL; tree ensembles: worse by 0.03-0.04 GLL). Target-PCA already separates the rank-1 structure implicitly - the first principal component captures the depth level - making an explicit split redundant for linear models and harmful for trees. This approach is excluded from the main benchmark.
 
 \subsection{Learning curve}
 
@@ -492,7 +633,7 @@ Motivated by the rank-1 EDA, we trained a decomposed model: predict the per-plan
 200 & 0.000 & 0.00551 \\
 400 & 0.000 & 0.00508 \\
 800 & \textbf{0.105} & 0.00371 \\
-1100 & 0.093 & 0.00352 \\
+1100 & 0.134 & 0.00352 \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -507,7 +648,7 @@ Bayesian Ridge cannot beat the naive baseline (GLL $\approx$ 0) until it sees ap
 
 \subsection{Synchronized ML vs Deep (headline result)}
 
-To compare fairly, representative ML and deep models are evaluated on the \textbf{same held-out planets} with the \textbf{same per-wavelength PHC calibration} (fit on one half of a held-out split, applied to the other - leak-free) and the \textbf{same naive reference}:
+To compare fairly, representative ML and deep models are evaluated on the same held-out planets with the same per-wavelength PHC calibration (fit on one half of a held-out split, applied to the other - leak-free) and the same naive reference:
 
 \begin{center}\small
 \begin{tabular}{@{}l l l l l@{}}
@@ -533,9 +674,10 @@ autoencoder\_mlp & deep + PHC & 0.000 & 0.01064 & 0.84 \\
 \caption{Synchronized ML vs Deep comparison on identical held-out planets with identical PHC calibration. Blue bars: ML models; red bars: deep sequence models. Extra Trees (0.287) and Random Forest (0.273) lead; CNN1D and Transformer are competitive at $\sim$0.22.}
 \end{figure}
 
-\textbf{Under a fair protocol, tree ensembles clearly win} (Extra Trees 0.287, Random Forest 0.273), with deep CNN1D and Transformer competitive but behind ($\sim$0.22). This \textbf{reverses the apparent ranking} in the merged table (\S{}6.1), where CNN1D (0.227) appeared to beat Extra Trees (0.215). That apparent "deep wins" was a protocol artifact: deep numbers came from a single split without PHC while ML numbers came from cross-validation with PHC. The lesson is methodological - \emph{only a synchronized protocol yields a valid ML-vs-Deep comparison.}
+Under a fair protocol, tree ensembles clearly win (Extra Trees 0.287, Random Forest 0.273), with deep CNN1D and Transformer competitive but behind ($\sim$0.22). This recovers and reinforces the advantage of tree ensembles observed in the merged table (\S{}6.1), where Extra Trees (0.236) outperformed CNN1D (0.227), but the gap is further widened under the synchronized protocol (0.287 vs 0.221). The lesson is methodological - \emph{only a synchronized protocol yields a valid ML-vs-Deep comparison.}
 
 \subsection{Feature importance}
+\label{sec:featimp}
 
 \begin{figure}[H]
 \centering
@@ -543,7 +685,7 @@ autoencoder\_mlp & deep + PHC & 0.000 & 0.01064 & 0.84 \\
 \caption{Top-20 feature importances (variance-weighted) for Extra Trees \cite{geurts2006}. The four dominant features are all noise proxies: FGS residual std after detrending, AIRS CDS noise proxy, FGS out-of-transit std mean, and AIRS residual std after detrending.}
 \end{figure}
 
-The top-20 features split into two tiers. The first seven (importance $\geq 0.034$) are entirely noise and transit-shape proxies from FGS and AIRS: residual standard deviation after detrending, CDS noise proxy, out-of-transit standard deviation (mean and max), mid-transit flux, and mid-transit depth. The remaining 13 (importance $\approx 0.01$) are per-wavelength depths and multi-scale spectral bin features. This confirms that \textbf{noise-characterisation features dominate} - the model cares more about how reliable the signal is than about its fine spectral shape.
+The top-20 features split into two tiers. The first seven (importance $\geq 0.034$) are entirely noise and transit-shape proxies from FGS and AIRS: residual standard deviation after detrending, CDS noise proxy, out-of-transit standard deviation (mean and max), mid-transit flux, and mid-transit depth. The remaining 13 (importance $\approx 0.01$) are per-wavelength depths and multi-scale spectral bin features. This confirms that noise-characterisation features dominate - the model cares more about how reliable the signal is than about its fine spectral shape.
 
 \subsection{Error analysis}
 
@@ -567,29 +709,29 @@ The per-wavelength RMSE lies in the narrow range $\approx 2.85\times10^{-3}$-$3.
 \toprule
 Model & GLL (mean $\pm$ std) & RMSE (mean $\pm$ std) \\
 \midrule
-extra\_trees & 0.215 $\pm$ 0.025 & 0.00253 $\pm$ 0.00021 \\
-bayesian\_ridge & 0.093 $\pm$ 0.026 & 0.00352 $\pm$ 0.00036 \\
-ridge & 0.000 $\pm$ 0.000 & 0.00643 $\pm$ 0.00054 \\
+extra\_trees & 0.236 $\pm$ 0.025 & 0.00253 $\pm$ 0.00021 \\
+bayesian\_ridge & 0.134 $\pm$ 0.026 & 0.00352 $\pm$ 0.00036 \\
+ridge & 0.067 $\pm$ 0.015 & 0.00643 $\pm$ 0.00054 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The fold-to-fold standard deviation ($\approx 0.025$) is much smaller than the gap between Extra Trees and Bayesian Ridge ($\approx 0.12$), so the ranking is \textbf{statistically robust} rather than a sampling artifact.
+The fold-to-fold standard deviation ($\approx 0.025$) is much smaller than the gap between Extra Trees and Bayesian Ridge ($\approx 0.10$), so the ranking is statistically robust rather than a sampling artifact.
 
 \subsection{Training cost and practical trade-offs}
 
-Runtime differs substantially across families. Linear models train in seconds to minutes but score GLL = 0 due to uninformative uncertainty. Tree ensembles are more expensive but deliver the best calibrated uncertainty: Extra Trees requires roughly 40 minutes of wall-clock time while Random Forest takes roughly 6 hours in the recorded runs, yet both provide the best synchronized GLL. NGBoost is similarly expensive ($\sim$7 hours) while scoring below the tree ensembles. Gradient-boosting machines (XGBoost \cite{chen2016}, LightGBM \cite{ke2017}) train in minutes and achieve the best point-prediction RMSE but score GLL = 0. The practical recommendation is to use fast linear models for pipeline debugging, then allocate compute to Extra Trees for final scoring.
+Runtime differs substantially across families. Linear models train in seconds to minutes. Tree ensembles are more expensive but deliver the best calibrated uncertainty: Extra Trees requires roughly 40 minutes of wall-clock time while Random Forest takes roughly 6 hours in the recorded runs, yet both provide the best synchronized GLL. NGBoost is similarly expensive ($\sim$7 hours) while scoring below the tree ensembles. Gradient-boosting machines (XGBoost \cite{chen2016}, LightGBM \cite{ke2017}) train in minutes and achieve the best point-prediction RMSE, but are outperformed in GLL by tree ensembles. The practical recommendation is to use fast linear models for pipeline debugging, then allocate compute to Extra Trees for final scoring.
 
 
 \section{Discussion \& Findings}
 
 \begin{enumerate}
-\item \textbf{Tree ensembles are the best models} on the official metric when compared fairly (Extra Trees 0.287, Random Forest 0.273); deep CNN1D and Transformer are competitive ($\sim$0.22); Bayesian linear is mid-pack ($\sim$0.09). The earlier "deep wins" impression was a protocol artifact - a direct lesson in experimental rigour.
-\item \textbf{Uncertainty quality gates the GLL.} The score divides models into those with informative $\sigma$ (GLL $>$ 0) and point estimators (GLL = 0). XGBoost achieves the best RMSE yet scores 0 - emphatic evidence that \emph{a good mean is not enough}; the uncertainty must be informative and well-scaled.
-\item \textbf{PHC is an honest negative result.} The closed-form per-wavelength calibration is theoretically optimal, but on this dataset the models' intrinsic $\sigma$ is already adequate - indeed over-wide - so recalibration is marginal to harmful and the feature-conditioned variant overfits. PHC remains valuable for standardising $\sigma$ across model families (enabling the fair comparison in \S{}6.6), but it is \textbf{not the dominant lever}.
+\item \textbf{Tree ensembles are the best models} on the official metric when compared fairly (Extra Trees 0.287, Random Forest 0.273); deep CNN1D and Transformer are competitive ($\sim$0.22); Bayesian linear is mid-pack (ARD 0.186, Bayesian Ridge 0.134). The earlier "deep wins" impression was a protocol artifact - a direct lesson in experimental rigour.
+\item \textbf{Uncertainty quality gates the GLL.} The score is heavily influenced by the quality of uncertainty estimates. XGBoost achieves the best point-prediction RMSE (0.00237) yet is outperformed in GLL by Extra Trees - emphatic evidence that \emph{a good mean is not enough}; the uncertainty must be informative and well-scaled.
+\item \textbf{PHC is an honest negative result.} The closed-form per-wavelength calibration is theoretically optimal, but on this dataset the models' intrinsic $\sigma$ is already adequate - indeed over-wide - so recalibration is marginal to harmful and the feature-conditioned variant overfits. PHC remains valuable for standardising $\sigma$ across model families (enabling the fair comparison in \S{}6.6), but it is not the dominant lever.
 \item \textbf{Strong data dependence.} GLL $\approx$ 0 below $\sim$800 planets, then a sharp rise - the small-data regime is a fundamental constraint, not a modelling failure.
 \item \textbf{Physics noise-features matter most.} Tree importances are dominated by residual std, out-of-transit std, CDS noise proxy, and FGS-shape features, validating the physics-based feature engineering (\S{}5.2) over raw transit depth alone.
-\item \textbf{Methodology over models.} The most transferable takeaway is that \textbf{protocol synchronisation} - identical evaluation split, identical calibration, identical naive reference - is required before any ML-vs-Deep claim is valid.
+\item \textbf{Methodology over models.} The most transferable takeaway is that protocol synchronisation - identical evaluation split, identical calibration, identical naive reference - is required before any ML-vs-Deep claim is valid.
 \end{enumerate}
 
 \textbf{Synthesis.} GLL is governed by (a) having a model with good intrinsic uncertainty and (b) having enough data - more than by any explicit recalibration layer. The winning recipe is tree ensembles $+$ sufficient training planets $+$ physics-based noise features.
